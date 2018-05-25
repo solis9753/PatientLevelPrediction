@@ -36,15 +36,15 @@ setRandomForest<- function(mtries=-1,ntrees=c(10,500),max_depth=17, varImp=T, se
     stop('Invalid seed')
   if(class(ntrees)!='numeric')
     stop('ntrees must be a numeric value >0')
-  if(ntrees < 0)
+  if(sum(ntrees < 0)>0)
     stop('mtries must be greater that 0')
   if(class(mtries)!='numeric')
     stop('mtries must be a numeric value >1 or -1')
-  if(mtries < -1)
+  if(sum(mtries < -1)>0)
     stop('mtries must be greater that 0 or -1')
   if(class(max_depth)!='numeric')
     stop('max_depth must be a numeric value >0')
-  if(max_depth < 1)
+  if(sum(max_depth < 1)>0)
     stop('max_depth must be greater that 0')
   if(class(varImp)!="logical")
     stop('varImp must be boolean')
@@ -81,7 +81,7 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
   }
   
   # connect to python if not connected
-  if ( !PythonInR::pyIsConnected() ){ 
+  if ( !PythonInR::pyIsConnected() || .Platform$OS.type=="unix"){ 
     PythonInR::pyConnect()
     PythonInR::pyOptions("numpyAlias", "np")
     PythonInR::pyOptions("useNumpy", TRUE)
@@ -91,9 +91,11 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
   if ( !PythonInR::pyIsConnected() )
     stop('Python not connect error')
   
-  
-  if(!quiet)
+  PythonInR::pyExec('quiet = True')
+  if(quiet==F){
     writeLines(paste0('Training random forest model...' ))
+    PythonInR::pyExec('quiet = False')
+  }
   start <- Sys.time()
   
   # make sure population is ordered?
@@ -116,13 +118,14 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
   if(param$varImp[1]==T){
   
     # python checked in .set 
-    PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','rf_var_imp.py '))
+    PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','rf_var_imp.py'))
     
     
     #load var imp and create mapping/missing
     varImp <-PythonInR::pyGet("rf.feature_importances_", simplify = FALSE)[,1]
     
-    writeLines('Variable importance completed')  
+    if(!quiet)
+      writeLines('Variable importance completed')  
     if(mean(varImp)==0)
       stop('No important variables - seems to be an issue with the data')
     
@@ -167,7 +170,7 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
     #missing = sys.argv[6] # this contains missing
     
     # then run standard python code
-    PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','randomForestCV.py '))
+    PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','randomForestCV.py'))
     
     # then get the prediction 
     pred <- PythonInR::pyGet('prediction', simplify = FALSE)
@@ -182,7 +185,8 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
     ##colnames(pred) <- c('rowId','outcomeCount','indexes', 'value')
     auc <- PatientLevelPrediction::computeAuc(pred)
     all_auc <- c(all_auc, auc)
-    writeLines(paste0('Model with settings: ntrees:',param$ntrees[i],' max_depth: ',param$max_depth[i], 
+    if(!quiet)
+      writeLines(paste0('Model with settings: ntrees:',param$ntrees[i],' max_depth: ',param$max_depth[i], 
                       'mtry: ', param$mtry[i] , ' obtained AUC of ', auc))
   }
   
@@ -194,7 +198,7 @@ fitRandomForest <- function(population, plpData, param, search='grid', quiet=F,
   PythonInR::pySet("mtry",param$mtries[which.max(all_auc)])
   PythonInR::pySet("modelOutput",outLoc)
   
-  PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','finalRandomForest.py '))
+  PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','finalRandomForest.py'))
   
   modelTrained <- file.path(outLoc) # location 
   param.best <- param[which.max(all_auc),]

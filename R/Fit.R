@@ -83,7 +83,7 @@ fitPlp <- function(population, data,   modelSettings,#featureSettings,
   plpModel <- do.call(fun, args)
   
   plpModel$predict <- createTransform(plpModel)
-  plpModel$index <- population$indexes
+  plpModel$index <- population$indexes  ##?- dont think we need this, just the seed instead
   class(plpModel) <- 'plpModel'
   
   return(plpModel)
@@ -93,6 +93,13 @@ fitPlp <- function(population, data,   modelSettings,#featureSettings,
 
 # create transformation function
 createTransform <- function(plpModel){
+  #=============== edited this in last run
+  # remove index to save space 
+  plpModel$index <- NULL
+  ##plpModel$varImp <- NULL
+  # remove connection details for privacy
+  plpModel$metaData$call$connectionDetails <- NULL
+  #=====================
   
   transform <- function(plpData=NULL, population=NULL){
     #check model fitting makes sense:
@@ -100,7 +107,7 @@ createTransform <- function(plpModel){
       flog.warn('cohortId of new data does not match training data')
     if(ifelse(!is.null(attr(population, "metaData")$outcomeId),attr(population, "metaData")$outcomeId,-1)!=plpModel$outcomeId)
       flog.warn('outcomeId of new data does not match training data or does not exist')
-    
+
     pred <- do.call(paste0('predict.',attr(plpModel, 'type')), list(plpModel=plpModel,
                                                                     plpData=plpData, 
                                                                     population=population))

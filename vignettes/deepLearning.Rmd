@@ -36,22 +36,22 @@ The success of machine learning largely depends on the selection of an optimal f
 
 #Background
 
-Deep learning can automatically extract high-level features from data, which concisists of multiple layers of neural network stacked. How to use deep learning for EHR data recently attracts many attention, especially for huge volume of medical record data. Thus, in PatientLevelPrediction package, we also add support for deep learning, which is integrated into PatientLevelPrediction with the same interface as other conventioanl machine learning models. 
+Deep learning can automatically extract high-level features from data, which consists of multiple layers of neural network stacked. How to use deep learning for EHR data recently attracts many attention, especially for huge volume of medical record data. Thus, in PatientLevelPrediction package, we also add support for deep learning, which is integrated into PatientLevelPrediction with the same interface as other conventional machine learning models. 
 
-![The deep Learning using convolutonal neural network](CNN.png)
+![The deep Learning using convolutional neural network](CNN.png)
 
-Many network architectures have recently been developed. For different deep leanring models, they require different data input format. For Convolutional neural netowrk (CNN) or Recurrent neural network (RNN), they require the temporal information, which can be treated as 3D matrix |patient|x|feature|X|cohort time|. For multilayer perceptron, they just need the 2D input matrix, which requires encoding the features using multi-hot encoding for all avaliable information. We mainly implement the followings using Pytorch:
+Many network architectures have recently been developed. For different deep learning models, they require different data input format. For Convolutional neural network (CNN) or Recurrent neural network (RNN), they require the temporal information, which can be treated as 3D matrix |patient|x|feature|X|cohort time|. For multilayer perceptron, they just need the 2D input matrix, which requires encoding the features using multi-hot encoding for all available information. We mainly implement the followings using Pytorch:
 For non-temporal data:
 	1. Logistics regression (LRTorch)
 	2. Feedforward network (MLPTorch), it supports multilayer perceptron and self-normalizing neural network. 
 For the above two methods, it support stacked autoencoder and variational autoencoders, which are used to reduce the feature dimension by autoencoder before feeding into MLP and logistics regression. 
-Autoencoder learns efficient data codings in unsupervised manner by stacking multiple layers of networks.
+Autoencoder learns efficient data coding in unsupervised manner by stacking multiple layers of networks.
 
 For temporal data:
 	3. Convolutional neural network (CNNTorch), it supports two-layers CNN, CNN_LSTM, and the network architectures proposed in deepDiagnosis(https://github.com/clinicalml/deepDiagnosis)
 	4. Recurrent neural network (RNNTorch), it supports LSTM, Bidirectional LSTM and GRU.
 
-NOTICE: The authors can go to python file deepTorch.py to add their own network architectures or change the aleardy implemented architectures.
+NOTICE: The authors can go to python file deepTorch.py to add their own network architectures or change the already implemented architectures.
 
 # GPU or CPU 
 Our implementation support both GPU and CPU. It will automatically check whether there is GPU or not in the computer. If there exists GPUs, it automatically run the model training on GPUs. Otherwise it will run on CPUs.
@@ -137,7 +137,7 @@ testFraction <- 0.2
 Specify the test split to be used.
 
 ```{r}
-# Use a split by person, alterantively a time split is possible
+# Use a split by person, alternatively a time split is possible
 testSplit <- 'person'
 ```
 
@@ -168,7 +168,7 @@ prediction <- results <- applyModel(population, plpData, model, calculatePerform
 ```
 
 # CNNTorch and RNNTorch
-For CNN and RNN, it requries temporal data as inputs.
+For CNN and RNN, it requires temporal data as inputs.
 
 # Usage
 
@@ -242,7 +242,7 @@ testFraction <- 0.2
 Specify the test split to be used.
 
 ```{r}
-# Use a split by person, alterantively a time split is possible
+# Use a split by person, alternatively a time split is possible
 testSplit <- 'person'
 ```
 
@@ -270,5 +270,3 @@ Get the prediction, please make sure the ensemble strategy for training and appl
 ```{r eval=FALSE}
 prediction <- results <- applyModel(population, plpData, model, calculatePerformance=T)$prediction
 ```
-
- 

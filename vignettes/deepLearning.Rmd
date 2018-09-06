@@ -53,6 +53,9 @@ For temporal data:
 
 NOTICE: The authors can go to python file deepTorch.py to add their own network architectures or change the aleardy implemented architectures.
 
+# GPU or CPU 
+Our implementation support both GPU and CPU. It will automatically check whether there is GPU or not in the computer. If there exists GPUs, it automatically run the model training on GPUs. Otherwise it will run on CPUs.
+
 # Usage
 
 # LRTorch and MLPTorch

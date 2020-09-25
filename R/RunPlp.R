@@ -503,32 +503,45 @@ summary.runPlp <- function(object, ...) {
 # CovariateCountWithNoOutcome	CovariateMeanWithOutcome	
 # CovariateMeanWithNoOutcome	CovariateStDevWithOutcome	
 # CovariateStDevWithNoOutcome	CovariateStandardizedMeanDifference
+#' @import data.table
 covariateSummary <- function(plpData, population = NULL, model = NULL){
   #===========================
   # all 
   #===========================
   if(!is.null(model$varImp)){
-    variableImportance <- tibble::as_tibble(model$varImp[,colnames(model$varImp)!='covariateName'])
+    variableImportance <- tibble::as_tibble(model$varImp[,colnames(model$varImp)!='covariateName']) %>%
+      dplyr::collect()
+    
   } else{
     variableImportance <- tibble::tibble(covariateId = 1,
-                                     covariateValue = 0)
+                                     covariateValue = 0) %>%
+      dplyr::collect()
   }
+  
+  # rowIds <- data.table::data.table(
+  #   rowId = population$rowId
+  # )
+  # 
+  # data.table::setkey(
+  #   rowIds,
+  #   rowId
+  # )
+  
   
   data.table::setDT(
     variableImportance
   )
   
-  population <- data.table::setDT(
-    population
-  )
-  
   covariates <- plpData$covariateData$covariates %>%
-    dplyr::collect() %>%
-    data.table::setDT()
+    dplyr::collect()
   
+    data.table::setDT(
+      covariates
+    )
+
   data.table::setkey(
     covariates,
-    covariateId
+    rowId
   )
   
   covariateRef <- plpData$covariateData$covariateRef %>%
@@ -537,17 +550,34 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
   
   data.table::setDT(
     covariateRef,
-    covariateId
+    c(covariateId)
   )
-  
 
   # restrict to pop
-  if(!is.null(population))
+  if (!is.null(population))
   {
-    covariates <- covariates[rowId %in% local(population$rowId)]
+    data.table::setDT(
+      population
+    )
+    
+    
+    data.table::setkey(
+      population,
+      rowId
+    )
+    
+    covariates <- covariates[population, nomatch = 0, on = "rowId"]
+    
+    covariates <- covariates[
+      ,
+      .(
+        rowId,
+        covariateId,
+        covariateValue
+      )
+    ]
   } 
   
-
   # find total pop values:
   N <- nrow(population)
   
@@ -562,6 +592,11 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
   
   data.table::setkey(
     means,
+    covariateId
+  )
+  
+  data.table::setkey(
+    covariates,
     covariateId
   )
   
@@ -636,10 +671,19 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
       )
     ]
     
+    data.table::setkey(
+      population2,
+      rowId
+    )
+    
+    data.table::setkey(
+      covariates,
+      rowId
+    )
+    
     means <- covariates[
       population2,
-      nomatch = 0,
-      on = "rowId"
+      nomatch = 0
     ][
       ,
       .(
@@ -717,6 +761,7 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
       ,
       index := indexes < 0
     ][
+      ,
       .(
         Ns = .N
       ),
@@ -745,6 +790,11 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
       )
     ]
     
+    data.table::setkey(
+      population2,
+      rowId
+    )
+    
     result <- covariates[
       population2, 
       nomatch = 0,
@@ -762,6 +812,7 @@ covariateSummary <- function(plpData, population = NULL, model = NULL){
         Ns
       )
     ][
+      ,
       .(
         covariateId,
         outcomeCount,

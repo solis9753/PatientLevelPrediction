@@ -610,6 +610,10 @@ updateModelLocation  <- function(plpModel, dirPath){
     plpModel$model <- file.path(dirPath,'python_model')
     plpModel$predict <- createTransform(plpModel)
   }
+  if( type =='RIPPER'){
+    plpModel$model <- file.path(dirPath,'ripper_model')
+    plpModel$predict <- createTransform(plpModel)
+  }
   if( type =='sagemaker'){
     plpModel$model$loc <- file.path(dirPath,'sagemaker_model')
     plpModel$predict <- createTransform(plpModel)

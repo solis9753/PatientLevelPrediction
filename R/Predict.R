@@ -118,6 +118,23 @@ predict.xgboost <- function(plpModel,population, plpData, ...){
   
 }
 
+# for RIPPER
+predict.RIPPER <- function(plpModel,population, plpData, ...){ 
+  result <- toSparseM(plpData,population,map=plpModel$covariateMap,)
+  data <- result$data[population$rowId,]
+  data <- as.data.frame(as.matrix(data)) # TODO: make this more efficient?
+  
+  # TODO: filter out covariates?
+  prediction <- data.frame(rowId=population$rowId,
+                           value=as.numeric(stats::predict(plpModel$model, data)==1))
+  
+  prediction <- merge(population, prediction, by='rowId', all.x=T, fill=0)
+  prediction <- prediction[,colnames(prediction)%in%c('rowId','subjectId','cohortStartDate','outcomeCount','indexes', 'value')] # need to fix no index issue
+  attr(prediction, "metaData") <- list(predictionType = "binary") 
+  return(prediction)
+}
+
+
 predict.pythonReticulate <- function(plpModel, population, plpData){
   
   

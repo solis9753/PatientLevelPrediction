@@ -27,35 +27,35 @@ limitations under the License.
 
 IF OBJECT_ID('tempdb..#cohort_person', 'U') IS NOT NULL
 	DROP TABLE #cohort_person;
-	
+
 SELECT ROW_NUMBER() OVER (ORDER BY subject_id, cohort_start_date) AS row_id,
 	subject_id,
-{@cdm_version == "4"} ? {	
+{@cdm_version == "4"} ? {
 	cohort_definition_id AS cohort_concept_id,
 } : {
 	cohort_definition_id,
 }
 	cohort_start_date, cohort_end_date,
 	DATEDIFF(DAY, observation_period_start_date, cohort_start_date) AS days_from_obs_start,
-	{@study_end_date != '' } ? { 
-	    CASE 
+	{@study_end_date != '' } ? {
+	    CASE
 			WHEN cohort_end_date <= CAST('@study_end_date' AS DATE)
-				THEN DATEDIFF(DAY, cohort_start_date, cohort_end_date) 
-			ELSE 
+				THEN DATEDIFF(DAY, cohort_start_date, cohort_end_date)
+			ELSE
 				DATEDIFF(DAY, cohort_start_date, CAST('@study_end_date' AS DATE))
-		END 
+		END
 	} : {
 		DATEDIFF(DAY, cohort_start_date, cohort_end_date)
 	} AS days_to_cohort_end,
-	{@study_end_date != '' } ? { 
-	    CASE 
+	{@study_end_date != '' } ? {
+	    CASE
 			WHEN observation_period_end_date <= CAST('@study_end_date' AS DATE)
-				THEN DATEDIFF(DAY, cohort_start_date, observation_period_end_date) 
-			ELSE 
+				THEN DATEDIFF(DAY, cohort_start_date, observation_period_end_date)
+			ELSE
 				DATEDIFF(DAY, cohort_start_date, CAST('@study_end_date' AS DATE))
-		END 
+		END
 	} : {
-		DATEDIFF(DAY, cohort_start_date, observation_period_end_date) 
+		DATEDIFF(DAY, cohort_start_date, observation_period_end_date)
 	} AS days_to_obs_end,
 	YEAR(cohort_start_date)-year_of_birth as age_year,
 	gender_concept_id as gender
@@ -63,8 +63,8 @@ INTO #cohort_person
 
 {@use_sample}?{From ( select *  -- sampdata
                 from ( select {@first_only} ? {first_only.*}:{raw_cohorts.*}, p.year_of_birth, p.gender_concept_id, op.observation_period_start_date, op.observation_period_end_date , -- alldata
-                row_number() over (order by (CAST(p.person_id*month(cohort_start_date) AS BIGINT) % 123)*(CAST(year(cohort_start_date)*day(cohort_start_date) AS BIGINT) % 123)) rn
-  } 
+                row_number() over (order by (CAST(p.person_id*month(cohort_start_date) AS BIGINT) % 123)*(CAST(year(cohort_start_date)*day(cohort_start_date) AS BIGINT) % 123), p.person_id  ) rn
+  }
 
 
 {@first_only} ? {
@@ -73,16 +73,16 @@ FROM ( -- first_only
 		cohort_definition_id,
 		MIN(cohort_start_date) AS cohort_start_date,
 		MIN(cohort_end_date) AS cohort_end_date
-	
+
 }
-FROM ( -- raw_cohorts 
+FROM ( -- raw_cohorts
 	SELECT subject_id,
 			   @cohort_id AS cohort_definition_id,
 		     cohort_start_date,
 		     cohort_end_date
 	FROM @cohort_database_schema.@cohort_table cohort_table
-	
-{@cdm_version == "4"} ? {	
+
+{@cdm_version == "4"} ? {
 	WHERE cohort_concept_id IN (@cohort_id)
 } : {
 	WHERE cohort_definition_id IN (@cohort_id)
@@ -98,12 +98,12 @@ INNER JOIN @cdm_database_schema.observation_period as op
 
 INNER JOIN @cdm_database_schema.person as p
  ON op.person_id = p.person_id
-	
+
 WHERE cohort_start_date <= op.observation_period_end_date
 	AND cohort_start_date >= op.observation_period_start_date
-{@study_start_date != '' } ? {AND cohort_start_date >= CAST('@study_start_date' AS DATE) } 
+{@study_start_date != '' } ? {AND cohort_start_date >= CAST('@study_start_date' AS DATE) }
 {@study_end_date != '' } ? {AND cohort_start_date < CAST('@study_end_date' AS DATE) }
 {@washout_period != 0} ? {AND DATEDIFF(DAY, observation_period_start_date, cohort_start_date) >= @washout_period}
 
-{@use_sample}?{) alldata where rn <= @sample_number) sampdata } 
+{@use_sample}?{) alldata where rn <= @sample_number) sampdata }
 ;

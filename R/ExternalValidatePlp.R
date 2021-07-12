@@ -65,7 +65,8 @@ externalValidatePlp <- function(plpResult,
                                 verbosity="INFO", keepPrediction=F,
                                 recalibrate = NULL,
                                 sampleSize = NULL,
-                                outputFolder){
+                                outputFolder,
+                                dataLoc = ""){
   
   # TODO:: ADD LOGGING, MORE INOUT TESTS, ADD TEST CASE IN PACKAGE... 
   if(missing(plpResult))
@@ -168,7 +169,8 @@ externalValidatePlp <- function(plpResult,
                                                       newOutcomeId = validationIdOutcome, 
                                                       newOracleTempSchema = oracleTempSchema,
                                                       sample = sampleSize, 
-                                                      createPopulation = T )
+                                                      createPopulation = T,
+                                                      dataLoc = dataLoc)
     
     if(sum(newData$population$outcomeCount>0)<20){
       warning('Outcome count is less than 20... external validation may be inaccurate')

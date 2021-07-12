@@ -222,7 +222,8 @@ similarPlpData <- function(plpModel=NULL,
                            newOracleTempSchema = newCdmDatabaseSchema,
                            sample=NULL, 
                            createPopulation= T,
-                           createCohorts = T) {
+                           createCohorts = T,
+                           dataLoc = "") {
   
   # check logger
   if(length(ParallelLogger::getLoggers())==0){
@@ -297,7 +298,9 @@ similarPlpData <- function(plpModel=NULL,
   
   dataOptions$baseUrl <- NULL
   
-  plpData <- do.call(getPlpData, dataOptions)
+  # plpData <- do.call(getPlpData, dataOptions)
+  plpData <- PatientLevelPrediction::loadPlpData(dataLoc)
+  
   
   if(!createPopulation){
     ParallelLogger::logTrace('Skipping population - only returning plpData')

@@ -568,7 +568,8 @@ evaluateMultiplePlp <- function(analysesLocation,
                                 verbosity = 'INFO',
                                 keepPrediction = F,
                                 recalibrate = NULL,
-                                sampleSize = NULL){
+                                sampleSize = NULL,
+                                dataLoc = ""){
   
   clearLoggerType("Multple Evaluate PLP Log")
   if(!dir.exists(outputLocation)){dir.create(outputLocation,recursive=T)}
@@ -612,7 +613,8 @@ evaluateMultiplePlp <- function(analysesLocation,
                                                     verbosity = verbosity, 
                                                     keepPrediction = keepPrediction,
                                                     recalibrate = recalibrate,
-                                                    sampleSize=sampleSize),
+                                                    sampleSize=sampleSize,
+                                                    dataLoc = dataLoc),
                                 error = function(cont){ParallelLogger::logInfo(paste0('Error: ',cont ))
                                   ;return(NULL)})
       

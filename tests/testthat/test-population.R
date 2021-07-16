@@ -14,347 +14,355 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 library("testthat")
 context("Population")
 
-# Test unit for the creation of the study population. The firstExposureOnly, 
-# washout, requireTimeAtRisk are checked. Additionally, error messages are checked.
+### Help functions
+getPlpData <- function(){
+  return(readRDS(paste0(getwd(), "/tests/testthat/plpData_sample.rds")))
+}
 
-test_that("population creation parameters", {
-  
-  studyPopulation <- createStudyPopulation(plpData,
-                                           outcomeId = 3,
-                                           binary = TRUE,
-                                           includeAllOutcomes = F,
-                                           firstExposureOnly = FALSE,
-                                           washoutPeriod = 0,
-                                           removeSubjectsWithPriorOutcome = FALSE,
-                                           priorOutcomeLookback = 99999,
-                                           requireTimeAtRisk = FALSE,
-                                           minTimeAtRisk=0,
-                                           riskWindowStart = 0,
-                                           startAnchor = 'cohort start',
-                                           riskWindowEnd = 365,
-                                           endAnchor = 'cohort start')
-  
-  #plpData = plpData
+getDefaultPopulationSettings <- function(outcomeId = 2){
+  default_settings <- formals(PatientLevelPrediction::createStudyPopulation)
+  default_settings$plpData <- getPlpData()
+  default_settings$outcomeId <- outcomeId
+  return(as.list(default_settings))
+}
+
+default_settings <- getDefaultPopulationSettings()
+
+isvalid_studyPopulation <- function(studyPopulation) {
   expect_is(studyPopulation, "data.frame")
   
-  nrOutcomes1 <- sum(studyPopulation$outcomeCount) 
-  expect_gt(nrOutcomes1,0)
+  # check if expected columns are present
+  expect_equal(sum((c("rowId","subjectId","cohortId","cohortStartDate","daysFromObsStart","daysToCohortEnd","daysToObsEnd","ageYear","gender","outcomeCount","timeAtRisk","daysToEvent","survivalTime") %in% colnames(studyPopulation))==FALSE),0)
   
-  #firstExposureOnly test (should have no effect on simulated data)
-  studyPopulation <- createStudyPopulation(plpData,
-                                           outcomeId = 3,
-                                           binary = TRUE,
-                                           includeAllOutcomes = F,
-                                           firstExposureOnly = TRUE,
-                                           washoutPeriod = 0,
-                                           removeSubjectsWithPriorOutcome = FALSE,
-                                           priorOutcomeLookback = 99999,
-                                           requireTimeAtRisk = FALSE,
-                                           minTimeAtRisk=0,
-                                           riskWindowStart = 0,
-                                           startAnchor = 'cohort start',
-                                           riskWindowEnd = 365,
-                                           endAnchor = 'cohort start')
+  # check if row count > 0
+  # TODO: this is not strictly required but I think we should stop already at the plp object if that is empty
+  expect_gt(nrow(studyPopulation), 0)
   
-  nrOutcomes2 <- sum(studyPopulation$outcomeCount)
-  expect_gt(nrOutcomes2,0)
-  expect_equal(nrOutcomes1,nrOutcomes2)
+}
+
+# TODO: add more informative error messages (return actual numbers?)
+# includedRowIds = rowIds you know should BE IN the study population (could be more)
+# excludedRowIds = rowIds you know should NOT BE IN the study population anymore (could be more)
+# rowIdsWithOutcome = rowIds you know should HAVE the outcome (could be more)
+# rowIdsWithoutOutcome = rowIds you know should NOT HAVE the outcome (could be more)
+iscorrect_studyPopulation <- function(studyPopulation, includedRowIds = c(), excludedRowIds = c(), rowIdsWithOutcome = c(), rowIdsWithoutOutcome = c()) {
+  expect_equal(sum((includedRowIds %in% studyPopulation$rowId)==FALSE), 0, info = "includedRowIds NOT in study population")
+  expect_equal(sum((excludedRowIds %in% studyPopulation$rowId)==TRUE), 0, info = "excludedRowIds STILL in study population")
+  expect_equal(sum(studyPopulation$outcomeCount[studyPopulation$rowId %in% rowIdsWithOutcome] == 0), 0, info = "rowIdsWithOutcome do not have outcome")
+  expect_equal(sum(studyPopulation$outcomeCount[studyPopulation$rowId %in% rowIdsWithoutOutcome] == 1), 0, info = "rowIdsWithoutOutcome do have outcome")
+}
+
+###  Test functions
+
+# TODO: create weird value test
+# test the abnormal input cases eg.) -365 / cohort stard / -25 / cohort ent
+test_that("Check the riskWindow parameters: 365/start/365/start", {
+  settings <- default_settings
   
-  #requireTimeAtRisk
-  studyPopulation <- createStudyPopulation(plpData,
-                                           outcomeId = 3,
-                                           binary = TRUE,
-                                           includeAllOutcomes = F,
-                                           firstExposureOnly = TRUE,
-                                           washoutPeriod = 0,
-                                           removeSubjectsWithPriorOutcome = FALSE,
-                                           priorOutcomeLookback = 99999,
-                                           requireTimeAtRisk = TRUE,
-                                           minTimeAtRisk=365,
-                                           riskWindowStart = 0,
-                                           startAnchor = 'cohort start',
-                                           riskWindowEnd = 365,
-                                           endAnchor = 'cohort start')
-  nrOutcomes3 <- sum(studyPopulation$outcomeCount)
-  expect_gt(nrOutcomes3,0)
-  expect_true(nrOutcomes3 <= nrOutcomes1) 
+  # Set test parameters
+  settings$riskWindowStart <- -365
+  settings$removeSubjectsWithPriorOutcome <- F
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 0
+  settings$endAnchor <- 'cohort start'
   
-  expect_warning(
-    createStudyPopulation(plpData,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = TRUE,
-                          washoutPeriod = 0,
-                          removeSubjectsWithPriorOutcome = FALSE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = TRUE,
-                          minTimeAtRisk= 999999,
-                          riskWindowStart = 0,
-                          startAnchor = 'cohort start',
-                          riskWindowEnd = 365,
-                          endAnchor = 'cohort start')
-  )
+  # Test
+  expect_error(studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings))
+})
+
+# TODO: not sure if this is necessary in every test, maybe test once in beginning?
+# isvalid_studyPopulation(studyPopulation)   
+
+test_that("Patients with outcome but without full time-at-risk are included", {
+  settings <- default_settings
   
-  #washoutPeriod
-  studyPopulation <- createStudyPopulation(plpData,
-                                           outcomeId = 3,
-                                           binary = TRUE,
-                                           includeAllOutcomes = F,
-                                           firstExposureOnly = TRUE,
-                                           washoutPeriod = 365,
-                                           removeSubjectsWithPriorOutcome = FALSE,
-                                           priorOutcomeLookback = 99999,
-                                           requireTimeAtRisk = FALSE,
-                                           minTimeAtRisk=365,
-                                           riskWindowStart = 0,
-                                           startAnchor = 'cohort start',
-                                           riskWindowEnd = 365,
-                                           endAnchor = 'cohort start')
-  nrOutcomes4 <- sum(studyPopulation$outcomeCount)
-  expect_gt(nrOutcomes4,0)
-  expect_true(nrOutcomes4 <= nrOutcomes1) 
+  # Set test parameters
+  settings$includeAllOutcomes <- TRUE
+  settings$requireTimeAtRisk <- TRUE
+  settings$minTimeAtRisk <- 100
   
-  #washoutPeriod >=0
-  expect_error(
-    createStudyPopulation(plpData,
-                          population = NULL,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = FALSE,
-                          washoutPeriod = -1,
-                          removeSubjectsWithPriorOutcome = TRUE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = TRUE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          riskWindowEnd = 365)
-  )
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(1, 3),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(1, 3),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Patients with outcome but without full time-at-risk are excluded", {
+  settings <- default_settings
   
-  #priorOutcomeLookback >=0
-  expect_error(
-    createStudyPopulation(plpData,
-                          population = NULL,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = FALSE,
-                          washoutPeriod = 0,
-                          removeSubjectsWithPriorOutcome = TRUE,
-                          priorOutcomeLookback = -1,
-                          requireTimeAtRisk = TRUE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          riskWindowEnd = 365)
-  )
+  # Set test parameters
+  settings$includeAllOutcomes <- FALSE
+  settings$requireTimeAtRisk <- TRUE
+  settings$minTimeAtRisk <- 100
   
-  #minTimeAtRisk >=0
-  expect_error(
-    createStudyPopulation(plpData,
-                          population = NULL,
-                          outcomeId = 3,
-                          binary = T,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = FALSE,
-                          washoutPeriod = 0,
-                          removeSubjectsWithPriorOutcome = TRUE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = T,
-                          minTimeAtRisk=-1,
-                          riskWindowStart = 0,
-                          riskWindowEnd = 365)
-  )
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(3),
+                            excludedRowIds = c(1),
+                            rowIdsWithOutcome = c(3),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Patients without outcome but with full time-at-risk are included", {
+  settings <- default_settings
   
-  # if addExposureDaysToStart is specified used it but give warning
-  expect_warning(
-    createStudyPopulation(plpData,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = TRUE,
-                          washoutPeriod = 365,
-                          removeSubjectsWithPriorOutcome = FALSE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = FALSE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          startAnchor = NULL,
-                          riskWindowEnd = 365,
-                          endAnchor = NULL,
-                          addExposureDaysToStart = TRUE,
-                          addExposureDaysToEnd = TRUE)
-  )
+  # Set test parameters
+  # settings$includeAllOutcomes not relevant for this test
+  settings$requireTimeAtRisk <- TRUE
+  settings$minTimeAtRisk <- 80
   
-  # Incorrect verbosity string
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(2, 4),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(),
+                            rowIdsWithoutOutcome = c(2, 4))
+})
+
+test_that("Patients without outcome and without full time-at-risk are excluded", {
+  settings <- default_settings
   
-  # if addExposureDaysToStart is specified used it but give warning
-  expect_error(
-    createStudyPopulation(plpData,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = TRUE,
-                          washoutPeriod = 365,
-                          removeSubjectsWithPriorOutcome = FALSE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = FALSE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          startAnchor = 'cohort start',
-                          riskWindowEnd = 365,
-                          endAnchor = 'cohort end', 
-                          verbosity = 'IMFO')
-  )
+  # Set test parameters
+  # settings$includeAllOutcomes not relevant for this test
+  settings$requireTimeAtRisk <- TRUE
+  settings$minTimeAtRisk <- 100
   
-  # Incorrect startAnchor
-  expect_error(
-    createStudyPopulation(plpData,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = TRUE,
-                          washoutPeriod = 365,
-                          removeSubjectsWithPriorOutcome = FALSE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = FALSE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          startAnchor = 'cohort stard',
-                          riskWindowEnd = 365,
-                          endAnchor = 'cohort end')
-  )
-  
-  # Incorrect endAnchor
-  expect_error(
-    createStudyPopulation(plpData,
-                          outcomeId = 3,
-                          binary = TRUE,
-                          includeAllOutcomes = F,
-                          firstExposureOnly = TRUE,
-                          washoutPeriod = 365,
-                          removeSubjectsWithPriorOutcome = FALSE,
-                          priorOutcomeLookback = 99999,
-                          requireTimeAtRisk = FALSE,
-                          minTimeAtRisk=365,
-                          riskWindowStart = 0,
-                          startAnchor = 'cohort start',
-                          riskWindowEnd = 365,
-                          endAnchor = 'cohort ent')
-  )
-  
-  
-  # check outcomes that only have partial timeatrisk are included:
-  
-  outcomes <- data.frame(rowId= c(1,1,1,4,5), 
-                         outcomeId=c(1,1,1,1,2), 
-                         outcomeCount=rep(1,5),
-                         daysToEvent=c(-30,30,180,60,4)
-  )
-  cohorts <- data.frame(rowId=1:20, 
-                        subjectId=1:20, 
-                        cohortId=rep(2,20),
-                        time=rep(365,20),
-                        ageYear = rep(18,20),
-                        gender = rep(8507,20),
-                        cohortStartDate=rep('2012-04-12',20),
-                        daysFromObsStart=rep(740,20),
-                        daysToCohortEnd=rep(1,20),
-                        daysToObsEnd=c(40, rep(900,19))
-  )
-  PplpData <- plpData
-  PplpData$outcomes <- outcomes
-  PplpData$cohorts <- cohorts
-  
-  attr(PplpData$cohorts, "metaData") <- list(attrition=data.frame(outcomeId=1,description='test',
-                                                                  targetCount=20,uniquePeople=20,
-                                                                  outcomes=3))
-  
-  Ppop <- createStudyPopulation(PplpData,
-                                population = NULL,
-                                outcomeId = 1,
-                                binary = T,
-                                includeAllOutcomes = T,
-                                firstExposureOnly = FALSE,
-                                washoutPeriod = 0,
-                                removeSubjectsWithPriorOutcome = F, 
-                                priorOutcomeLookback = 99999,
-                                requireTimeAtRisk = T,
-                                minTimeAtRisk=365,
-                                riskWindowStart = 0,
-                                startAnchor = 'cohort start',
-                                riskWindowEnd = 365,
-                                endAnchor = 'cohort start')
-  
-  # person 1 and 4 should be retruned
-  expect_equal(Ppop$rowId[Ppop$outcomeCount>0], c(1,4))
-  
-  Ppop2 <- createStudyPopulation(PplpData,
-                                 population = NULL,
-                                 outcomeId = 1,
-                                 binary = T,
-                                 includeAllOutcomes = T,
-                                 firstExposureOnly = F,
-                                 washoutPeriod = 0,
-                                 removeSubjectsWithPriorOutcome = T,
-                                 priorOutcomeLookback = 99999,
-                                 requireTimeAtRisk = T,
-                                 minTimeAtRisk=365,
-                                 riskWindowStart = 0,
-                                 startAnchor = 'cohort start',
-                                 riskWindowEnd = 365,
-                                 endAnchor = 'cohort start')
-  
-  # person 4 only as person 1 has it before
-  expect_equal(Ppop2$rowId[Ppop2$outcomeCount>0], c(4))
-  
-  Ppop3 <- createStudyPopulation(PplpData,
-                                 population = NULL,
-                                 outcomeId = 1,
-                                 binary = T,
-                                 includeAllOutcomes = F,
-                                 firstExposureOnly = FALSE,
-                                 washoutPeriod = 0,
-                                 removeSubjectsWithPriorOutcome = F,
-                                 priorOutcomeLookback = 99999,
-                                 requireTimeAtRisk = T,
-                                 minTimeAtRisk=365,
-                                 riskWindowStart = 0,
-                                 startAnchor = 'cohort start',
-                                 riskWindowEnd = 365,
-                                 endAnchor = 'cohort start')
-  
-  # 4 only should be retruned
-  expect_equal(Ppop3$rowId[Ppop3$outcomeCount>0], c(4))
-  
-  # creates min warning due to no data...
-  Ppop5 <- createStudyPopulation(PplpData,
-                                 population = NULL,
-                                 outcomeId = 1,
-                                 binary = T,
-                                 includeAllOutcomes = F,
-                                 firstExposureOnly = FALSE,
-                                 washoutPeriod = 0,
-                                 removeSubjectsWithPriorOutcome = F,
-                                 priorOutcomeLookback = 99999,
-                                 requireTimeAtRisk = T,
-                                 minTimeAtRisk=303,
-                                 riskWindowStart = 62,
-                                 startAnchor = 'cohort start',
-                                 riskWindowEnd = 365,
-                                 endAnchor = 'cohort start')
-  
-  # should have no outcomes
-  expect_equal(is.null(Ppop5), TRUE)
-  
-  
-  #atrr <- getAttritionTable(Ppop3)
-  #expect_is(atrr, "data.frame")
-  
-  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(4),
+                            excludedRowIds = c(2),
+                            rowIdsWithOutcome = c(),
+                            rowIdsWithoutOutcome = c(4))
 })
 
 
+test_that("Check the riskWindow parameters: 0/start/365/start", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$riskWindowStart <- 0
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 365
+  settings$endAnchor <- 'cohort start'
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(1,3,6,8,10,12,15,16,17,19,20),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Check the riskWindow parameters: 0/start/10/start", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$riskWindowStart <- 0
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 10
+  settings$endAnchor <- 'cohort start'
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(17),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Check the riskWindow parameters: 0/start/10/end", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$riskWindowStart <- 0
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 10
+  settings$endAnchor <- 'cohort end'
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(18),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Check the riskWindow parameters: 0/start/0/start", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$riskWindowStart <- 0
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 0
+  settings$endAnchor <- 'cohort start'
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(19),
+                            rowIdsWithoutOutcome = c())
+})
+
+test_that("Check the riskWindow parameters: 365/start/365/start", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$riskWindowStart <- 365
+  settings$startAnchor <- 'cohort start'
+  settings$riskWindowEnd <- 365
+  settings$endAnchor <- 'cohort start'
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(20),
+                            rowIdsWithoutOutcome = c())
+})
+
+
+
+testthat::test_that("Testing washout period - patients with prior observation period of at least 364 days", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$washoutPeriod <- 364
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(7, 8, 9, 10, 11, 12),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(8, 10, 12),
+                            rowIdsWithoutOutcome = c(7, 9, 11))
+}) 
+
+testthat::test_that("Testing washout period - patients with prior observation period of at least 365 days", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$washoutPeriod <- 365
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(7, 8, 11, 12),
+                            excludedRowIds = c(9, 10),
+                            rowIdsWithOutcome = c(8, 12),
+                            rowIdsWithoutOutcome = c(7, 11))
+})
+
+testthat::test_that("Testing washout period - patients with prior observation period of at least 366 days", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$washoutPeriod <- 366
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(11, 12),
+                            excludedRowIds = c(7, 8, 9, 10),
+                            rowIdsWithOutcome = c(12),
+                            rowIdsWithoutOutcome = c(11))
+}) 
+
+testthat::test_that("Testing washout period - patients with prior observation period of at least 367 days", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$washoutPeriod <- 367
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(),
+                            excludedRowIds = c(7, 8, 9, 10, 11, 12),
+                            rowIdsWithOutcome = c(),
+                            rowIdsWithoutOutcome = c())
+}) 
+
+
+test_that("Patients with prior outcome should not be excluded", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$removeSubjectsWithPriorOutcome <- FALSE
+  settings$priorOutcomeLookback <- 99999
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(13, 14, 15, 16),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(15,16),
+                            rowIdsWithoutOutcome = c(13,14))
+})
+
+
+test_that("Patients with outcome 10 days before index should be excluded", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$removeSubjectsWithPriorOutcome <- TRUE
+  settings$priorOutcomeLookback <- 10
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(13, 14, 15, 16),
+                            excludedRowIds = c(),
+                            rowIdsWithOutcome = c(15,16),
+                            rowIdsWithoutOutcome = c(13,14))
+})
+
+
+test_that("Patients with outcome 13 days before index should be excluded", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$removeSubjectsWithPriorOutcome <- TRUE
+  settings$priorOutcomeLookback <- 13
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(13, 14, 15),
+                            excludedRowIds = c(16),
+                            rowIdsWithOutcome = c(15),
+                            rowIdsWithoutOutcome = c(13,14))
+})
+
+
+
+test_that("Patients with outcome 15 days before index should be excluded", {
+  settings <- default_settings
+  
+  # Set test parameters
+  settings$removeSubjectsWithPriorOutcome <- TRUE
+  settings$priorOutcomeLookback <- 15
+  
+  # Test
+  studyPopulation <- do.call(PatientLevelPrediction::createStudyPopulation, settings)
+  iscorrect_studyPopulation(studyPopulation,
+                            includedRowIds = c(13, 15),
+                            excludedRowIds = c(14, 16),
+                            rowIdsWithOutcome = c(15),
+                            rowIdsWithoutOutcome = c(13))
+})

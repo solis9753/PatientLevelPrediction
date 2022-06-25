@@ -84,6 +84,8 @@ fitPlp <- function(
   
   class(plpModel) <- 'plpModel'
   
+  ## adding this temporarily
+  plpModel$settings$featureEngineering <- attr(trainData, "metaData")$featureEngineering
   return(plpModel)
   
 }

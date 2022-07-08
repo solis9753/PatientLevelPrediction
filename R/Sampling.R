@@ -154,6 +154,7 @@ underSampleData <- function(trainData, sampleSettings){
   attr(sampleTrainData$covariateData, 'metaData') <- metaData
   
   class(sampleTrainData$covariateData) <- 'CovariateData'
+  class(sampleTrainData) <- 'plpData'
   
   return(sampleTrainData)
 }

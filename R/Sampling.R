@@ -145,7 +145,7 @@ underSampleData <- function(trainData, sampleSettings){
   
   sampleTrainData$covariateData <- Andromeda::andromeda()
   sampleTrainData$covariateData$covariateRef <- trainData$covariateData$covariateRef
-  sampleTrainData$covariateData$analysisRef - trainData$covariateData$analysisRef
+  sampleTrainData$covariateData$analysisRef <- trainData$covariateData$analysisRef
   sampleTrainData$covariateData$covariates <- trainData$covariateData$covariates %>% 
     dplyr::filter(.data$rowId %in% pplOfInterest)
   

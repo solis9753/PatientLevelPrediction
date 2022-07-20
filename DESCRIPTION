@@ -28,6 +28,7 @@ Imports:
     Andromeda,
     Cyclops (>= 3.0.0),
     DatabaseConnector (>= 5.0.0),
+    data.table,
     dplyr,
     ggplot2,
     gridExtra,
@@ -86,5 +87,5 @@ Remotes:
     ohdsi/FeatureExtraction,
     ohdsi/IterativeHardThresholding,
     ohdsi/ParallelLogger
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.0
 Encoding: UTF-8

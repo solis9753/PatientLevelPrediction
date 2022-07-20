@@ -457,7 +457,7 @@ createStudyPopulationSettings <- function(
 #' \item{survivalTime}{The number of days until either the outcome or the end of the risk window}
 #' }
 #'
-#' @importFrom data.table := 
+#' @importFrom data.table ':='
 #' @export
 createStudyPopulation <- function(
     plpData,

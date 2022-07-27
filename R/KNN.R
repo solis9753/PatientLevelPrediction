@@ -1,6 +1,6 @@
 # @file knn.R
 #
-# Copyright 2017 Observational Health Data Sciences and Informatics
+# Copyright 2021 Observational Health Data Sciences and Informatics
 #
 # This file is part of PatientLevelPrediction
 #
@@ -20,92 +20,177 @@
 #'
 #' @param k         The number of neighbors to consider 
 #' @param indexFolder The directory where the results and intermediate steps are output
+#' @param threads   The number of threads to use when applying big knn
 #'
 #' @examples
 #' \dontrun{
 #' model.knn <- setKNN(k=10000)
 #' }
 #' @export
-setKNN <- function(k=1000, indexFolder=file.path(getwd(),'knn')  ){
+setKNN <- function(k=1000, indexFolder=file.path(getwd(),'knn'), threads = 1  ){
+  ensure_installed("BigKnn")
   
-  if(class(indexFolder)!='character')
-    stop('IndexFolder must be a character')
-  if(class(k)!='numeric')
-    stop('k must be a numeric value >0 ')
-  if(k<1)
-    stop('k must be a numeric value >0 ')
+  checkIsClass(indexFolder, c('character'))
   
-  if(length(k)>1)
-    stop('k can only be a single value')
+  checkIsClass(k, c('numeric','integer'))
+  checkHigher(k, 0)
   
-  result <- list(model='fitKNN', param=list(k=k, indexFolder=indexFolder),
-                 name='KNN'
+  if(length(k)>1){
+    ParallelLogger::logWarn('k can only be a single value - using first value only')
+    k <- k[1]
+  }
+  
+  
+  param <- list(
+    k = k,
+    indexFolder = indexFolder,
+    threads = threads
+    )
+  
+  attr(param, 'settings') <- list(
+    modelName = 'K Nearest Neighbors'
   )
+  
+  attr(param, 'saveType') <- 'file'
+  
+  result <- list(
+    fitFunction = "fitKNN",
+    param = param
+  )
+
   class(result) <- 'modelSettings' 
   
   return(result)
 }
-fitKNN <- function(plpData,population, param, quiet=T, cohortId, outcomeId, ...){
-  # check plpData is coo format:
-  if(!'ffdf'%in%class(plpData$covariates) || class(plpData)=='plpData.libsvm')
-    stop('KNN requires plpData in coo format')
+
+fitKNN <- function(trainData, param, search = 'none', analysisId ){
+
+  if (!FeatureExtraction::isCovariateData(trainData$covariateData)){
+    stop("Needs correct covariateData")
+  }
   
-  metaData <- attr(population, 'metaData')
-  if(!is.null(population$indexes))
-    population <- population[population$indexes>0,]
-  attr(population, 'metaData') <- metaData
-  
+  settings <- attr(param, 'settings')
+  ParallelLogger::logInfo(paste0('Training ', settings$modelName))
+
   start <- Sys.time()
   k <- param$k
   if(is.null(k))
     k <- 10
+  if(is.null(param$threads)){
+    param$threads<- 1
+  }
   indexFolder <- param$indexFolder
   
-  #clone data to prevent accidentally deleting plpData 
-  covariates <- ff::clone(plpData$covariates)
-  covariates <- limitCovariatesToPopulation(covariates, ff::as.ff(population$rowId))
   
-  # format of knn
-  #outcomes$y <- ff::as.ff(rep(1, length(unique(ff::as.ram(outcomes$rowId)))))
-  # add 0 outcome:
-  #ppl <- cohorts$rowId
-  #new <- ppl[!ppl%in%unique(outcomes$rowId)]
-  #newOut <- data.frame(rowId=new, outcomeId=-1,outcomeCount=1,timeToEvent=0,y=0)
-  #outcomes <- as.ffdf(rbind(plpData$outcomes,newOut))
-  population$y <- population$outcomeCount
-  population$y[population$y>0] <- 1
-  
-  # create the model in indexFolder
-  BigKnn::buildKnn(outcomes = ff::as.ffdf(population[,c('rowId','y')]),
-                   covariates = ff::as.ffdf(covariates),
-                   indexFolder = indexFolder)
+  BigKnn::buildKnnFromPlpData(
+    plpData = trainData,
+    population = trainData$labels %>% 
+      dplyr::mutate(
+        y = sapply(.data$outcomeCount, function(x) min(1,x))
+      ),
+    indexFolder = indexFolder,
+    overwrite = TRUE
+  )
   
   comp <- Sys.time() - start
-  if(!quiet)
-    writeLines(paste0('Model knn trained - took:',  format(comp, digits=3)))
   
-  varImp<- ff::as.ram(plpData$covariateRef)
-  varImp$covariateValue <- rep(0, nrow(varImp))
+  ParallelLogger::logInfo(paste0('Model knn trained - took:',  format(comp, digits=3)))
+
+  variableImportance <- as.data.frame(trainData$covariateData$covariateRef)
+  variableImportance$covariateValue <- rep(1, nrow(variableImportance))
   
-  result <- list(model = indexFolder,
-                 trainCVAuc = NULL,    # did I actually save this!?
-                 modelSettings = list(model='knn',
-                                      modelParameters=list(k=k),
-                                      indexFolder=indexFolder
-                 ),
-                 hyperParamSearch = unlist(param),
-                 metaData = plpData$metaData,
-                 populationSettings = attr(population, 'metaData'),
-                 outcomeId=outcomeId,
-                 cohortId=cohortId,
-                 varImp = varImp,
-                 trainingTime =comp
+  prediction <- predictKnn(
+    data = trainData, 
+    cohort = trainData$labels, 
+    plpModel = list(
+      model = indexFolder,
+      settings = list(
+      modelSettings = list(
+        model = 'knn',
+        param = list(
+          k = k,
+          indexFolder = indexFolder,
+          threads = param$threads
+          )
+        )
+      )
+      )
+    )
+  
+  prediction$evaluationType <- 'Train'
+  
+  result <- list(
+    model = indexFolder,
+    
+    prediction = prediction,
+    
+    settings = list(
+      plpDataSettings = attr(trainData, "metaData")$plpDataSettings,
+      covariateSettings = attr(trainData, "metaData")$covariateSettings,
+      featureEngineering = attr(trainData$covariateData, "metaData")$featureEngineering,
+      tidyCovariates = attr(trainData$covariateData, "metaData")$tidyCovariateDataSettings, 
+      requireDenseMatrix = F,
+      populationSettings = attr(trainData, "metaData")$populationSettings,
+      modelSettings = list(
+        model = 'KNN', 
+        param = param,
+        finalModelParameters = list(),
+        extraSettings = attr(param, 'settings')
+      ),
+      splitSettings = attr(trainData, "metaData")$splitSettings,
+      sampleSettings = attr(trainData, "metaData")$sampleSettings
+    ),
+    
+    trainDetails = list(
+      analysisId = analysisId,
+      cdmDatabaseSchema = attr(trainData, "metaData")$cdmDatabaseSchema,
+      outcomeId = attr(trainData, "metaData")$outcomeId,
+      cohortId = attr(trainData, "metaData")$cohortId,
+      attrition = attr(trainData, "metaData")$attrition, 
+      trainingTime = comp,
+      trainingDate = Sys.Date(),
+      hyperParamSearch =c()
+    ),
+    
+    covariateImportance = variableImportance
   )
+  
+  
   class(result) <- 'plpModel'
-  attr(result, 'type') <- 'knn'
-  attr(result, 'predictionType') <- 'binary'
+  attr(result, 'predictionFunction') <- 'predictKnn'
+  attr(result, 'modelType') <- 'binary'
+  attr(result, 'saveType') <- attr(param, 'saveType')
   return(result)
 }
 
+
+predictKnn <- function(
+  plpModel, 
+  data, 
+  cohort
+){
+  
+  prediction <- BigKnn::predictKnn(
+    covariates = data$covariateData$covariates,
+    cohort = cohort[,!colnames(cohort)%in%'cohortStartDate'],
+    indexFolder = plpModel$model,
+    k = plpModel$settings$modelSettings$param$k,
+    weighted = TRUE,
+    threads = plpModel$settings$modelSettings$param$threads
+  )
+  
+  # can add: threads = 1 in the future
+  
+  # return the cohorts as a data frame with the prediction added as 
+  # a new column with the column name 'value'
+  prediction <- merge(cohort, prediction[,c('rowId','value')], by='rowId', 
+    all.x=T, fill=0)
+  prediction$value[is.na(prediction$value)] <- 0
+  
+  attr(prediction, "metaData") <- 'binary'
+  
+  return(prediction)
+  
+}
 
 

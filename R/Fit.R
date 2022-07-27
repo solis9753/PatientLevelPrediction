@@ -1,6 +1,6 @@
 # @file Fit.R
 #
-# Copyright 2017 Observational Health Data Sciences and Informatics
+# Copyright 2021 Observational Health Data Sciences and Informatics
 #
 # This file is part of CohortMethod
 #
@@ -25,8 +25,7 @@
 #' The user can define the machine learning model to train (regularised logistic regression, random forest,
 #' gradient boosting machine, neural network and )
 #' 
-#' @param population                       The population created using createStudyPopulation() who will have their risks predicted
-#' @param data                             An object of type \code{plpData} - the patient level prediction
+#' @param trainData                        An object of type \code{TrainData} created using \code{splitData}
 #'                                         data extracted from the CDM.
 #' @param modelSettings                    An object of class \code{modelSettings} created using one of the function:
 #'                                         \itemize{
@@ -36,8 +35,8 @@
 #'                                         \item{GLMclassifier ()}{ A generalised linear model}
 #'                                         \item{KNNclassifier()}{ A KNN model}
 #'                                         }
-#' @param cohortId                         Id of study cohort
-#' @param outcomeId                        Id of outcome cohort
+#' @param search                           The search strategy for the hyper-parameter selection (currently not used)                                        
+#' @param analysisId                       The id of the analysis
 #' @return
 #' An object of class \code{plpModel} containing:
 #' 
@@ -50,77 +49,41 @@
 #' \item{trainingTime}{The time taken to train the classifier}
 #'
 #'
-
 #' @export
-fitPlp <- function(population, data,   modelSettings,#featureSettings, 
-                   cohortId, outcomeId){
+fitPlp <- function(
+  trainData,   
+  modelSettings,
+  search = "grid",
+  analysisId
+  )
+  {
   
-  if(is.null(population))
-    stop('Population is NULL')
-  if(is.null(data))
-    stop('plpData is NULL')
-  if(is.null(modelSettings$model))
+  if(is.null(trainData))
+    stop('trainData is NULL')
+  if(is.null(trainData$covariateData))
+    stop('covariateData is NULL')
+  checkIsClass(trainData$covariateData, 'CovariateData')
+  if(is.null(modelSettings$fitFunction))
     stop('No model specified')
-  
-  if('ffdf'%in%class(data$covariates)){
-    plpData <- list(outcomes =data$outcomes,
-                    cohorts = data$cohorts,
-                    covariates =ff::clone(data$covariates),
-                    covariateRef=ff::clone(data$covariateRef),
-                    metaData=data$metaData
-    )} else{
-      plpData <- data
-    }
-  
+  checkIsClass(modelSettings, 'modelSettings')
   
   #=========================================================
   # run through pipeline list and apply:
   #=========================================================
+
   # Now apply the classifier:
-  fun <- modelSettings$model
-  args <- list(plpData =plpData,param =modelSettings$param, 
-               population=population, cohortId=cohortId, outcomeId=outcomeId)
+  fun <- eval(parse(text = modelSettings$fitFunction))
+  args <- list(
+    trainData = trainData,
+    param = modelSettings$param,
+    search = search,
+    analysisId = analysisId
+    )
   plpModel <- do.call(fun, args)
+  ParallelLogger::logTrace('Returned from classifier function')
   
-  plpModel$predict <- createTransform(plpModel)
-  plpModel$index <- population$indexes  ##?- dont think we need this, just the seed instead
   class(plpModel) <- 'plpModel'
   
   return(plpModel)
   
-}
-
-
-# create transformation function
-createTransform <- function(plpModel){
-  #=============== edited this in last run
-  # remove index to save space 
-  plpModel$index <- NULL
-  ##plpModel$varImp <- NULL
-  # remove connection details for privacy
-  plpModel$metaData$call$connectionDetails <- NULL
-  #=====================
-  
-  transform <- function(plpData=NULL, population=NULL){
-    #check model fitting makes sense:
-    if(ifelse(!is.null(attr(population, "metaData")$cohortId),attr(population, "metaData")$cohortId,-1)!=plpModel$cohortId)
-      flog.warn('cohortId of new data does not match training data')
-    if(ifelse(!is.null(attr(population, "metaData")$outcomeId),attr(population, "metaData")$outcomeId,-1)!=plpModel$outcomeId)
-      flog.warn('outcomeId of new data does not match training data or does not exist')
-
-    pred <- do.call(paste0('predict.',attr(plpModel, 'type')), list(plpModel=plpModel,
-                                                                    plpData=plpData, 
-                                                                    population=population))
-    metaData <- list(trainDatabase = strsplit(do.call(paste, list(plpModel$metaData$call$cdmDatabaseSchema)),'\\.')[[1]][1],
-                     testDatabase = strsplit(do.call(paste, list(plpData$metaData$call$cdmDatabaseSchema)),'\\.')[[1]][1],
-                     studyStartDate = do.call(paste,list(plpModel$metaData$call$studyStartDate)), 
-                     studyEndDate = do.call(paste,list(plpModel$metaData$call$studyEndDate)),
-                     cohortId = plpModel$cohortId,
-                     outcomeId = plpModel$outcomeId,
-                     predictionType ='binary'
-    )
-    attr(pred, 'metaData') <- metaData
-    return(pred)
-  }
-  return(transform)
 }

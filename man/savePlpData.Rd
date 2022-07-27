@@ -4,16 +4,18 @@
 \alias{savePlpData}
 \title{Save the cohort data to folder}
 \usage{
-savePlpData(plpData, file, envir = NULL)
+savePlpData(plpData, file, envir = NULL, overwrite = F)
 }
 \arguments{
 \item{plpData}{An object of type \code{plpData} as generated using
-\code{getDbPlpData}.}
+\code{getPlpData}.}
 
 \item{file}{The name of the folder where the data will be written. The folder should
 not yet exist.}
 
 \item{envir}{The environment for to evaluate variables when saving}
+
+\item{overwrite}{Whether to force overwrite an existing file}
 }
 \description{
 \code{savePlpData} saves an object of type plpData to folder.

@@ -1,0 +1,153 @@
+template:
+  params:
+    bootswatch: cosmo
+    
+home:
+  links:
+  - text: Ask a question
+    href: http://forums.ohdsi.org
+    
+navbar:
+  structure:
+    left:
+    - home
+    - intro
+    - videos
+    - reference
+    - articles
+    - tutorial
+    - bestpractice
+    - news
+    right: [hades, github]
+  components:
+    home:
+      icon: fa-home fa-lg
+      href: index.html
+    reference:
+      text: Reference
+      href: reference/index.html
+    intro:
+      text: Get started
+      href: articles/InstallationGuide.html
+    videos:
+      text: Videos
+      href: articles/Videos.html
+    bestpractice:
+      text: Best Practices
+      href: articles/BestPractices.html
+    news:
+      text: Changelog
+      href: news/index.html
+    tutorial:
+      text: Tutorial
+      href: https://www.ohdsi.org/past-events/patient-level-prediction/
+    github:
+      icon: fa-github fa-lg
+      href: https://github.com/OHDSI/PatientLevelPrediction
+    hades:
+      text: hadesLogo
+      href: https://ohdsi.github.io/Hades
+
+reference:
+  - title: "Extracting data from the OMOP CDM database"
+    desc: >
+      Functions for getting the necessary data from the database in Common Data Model and saving/loading.
+    contents:
+      - createDatabaseDetails
+      - createRestrictPlpDataSettings
+      - getPlpData
+      - savePlpData
+      - loadPlpData   
+  - title: "Settings for designing a prediction models"
+    desc: >
+      Design settings required when developing a model.
+    contents:
+      - createStudyPopulationSettings
+      - createDefaultSplitSetting
+      - createSampleSettings
+      - createFeatureEngineeringSettings
+      - createPreprocessSettings
+  - title: "Execution settings when developing a model"
+    desc: >
+      Execution settings required when developing a model.
+    contents:
+      - createLogSettings
+      - createExecuteSettings
+  - title: "Binary Classification Models"
+    desc: >
+      Functions for setting binary classifiers and their hyper-parameter search.
+    contents:
+      - setAdaBoost
+      - setDecisionTree
+      - setGradientBoostingMachine
+      - setKNN
+      - setLassoLogisticRegression
+      - setMLP
+      - setNaiveBayes
+      - setRandomForest
+      - setSVM
+  - title: "Survival Models"
+    desc: >
+      Functions for setting survival models and their hyper-parameter search.
+    contents:
+      - setCoxModel
+  - title: "Single Patient-Level Prediction Model"
+    desc: >
+      Functions for training/evaluating/applying a single patient-level-prediction model
+    contents:
+      - runPlp
+      - externalValidateDbPlp
+      - savePlpModel
+      - loadPlpModel
+      - savePlpResult
+      - loadPlpResult
+  - title: "Multiple Patient-Level Prediction Models"
+    desc: >
+      Functions for training mutliple patient-level-prediction model in an efficient way.
+    contents:
+      - createModelDesign
+      - runMultiplePlp  
+      - validateMultiplePlp
+      - savePlpAnalysesJson 
+      - loadPlpAnalysesJson
+  - title: "Saving results into database"
+    desc: >
+      Functions for saving the prediction model and performances into a database.
+    contents:
+      - createPlpResultTables
+      - populatePlpResultTables     
+  - title: "Shiny Viewers"
+    desc: >
+      Functions for viewing results via a shiny app
+    contents:
+      - viewPlp
+      - viewMultiplePlp
+      - viewDatabaseResultPlp
+  - title: "Plotting"
+    desc: >
+      Functions for various performance plots
+    contents:
+      - plotPlp
+      - plotSparseRoc
+      - plotSmoothCalibration
+      - plotSparseCalibration
+      - plotSparseCalibration2
+      - plotDemographicSummary
+      - plotF1Measure
+      - plotGeneralizability
+      - plotPrecisionRecall
+      - plotPredictedPDF
+      - plotPreferencePDF
+      - plotPredictionDistribution
+      - plotVariableScatterplot
+  - title: "Learning Curves"
+    desc: >
+      Functions for creating and plotting learning curves
+    contents:
+      - createLearningCurve
+      - plotLearningCurve
+  - title: "Simulation"
+    desc: >
+      Functions for simulating cohort method data objects.
+    contents:
+      - simulatePlpData

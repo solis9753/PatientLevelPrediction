@@ -3,8 +3,7 @@
 \docType{package}
 \name{PatientLevelPrediction}
 \alias{PatientLevelPrediction}
-\alias{PatientLevelPrediction-package}
 \title{PatientLevelPrediction}
 \description{
-PatientLevelPrediction
+A package for running predictions using data in the OMOP CDM
 }

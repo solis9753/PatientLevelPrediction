@@ -1,6 +1,6 @@
 # @file predict.R
 #
-# Copyright 2017 Observational Health Data Sciences and Informatics
+# Copyright 2021 Observational Health Data Sciences and Informatics
 #
 # This file is part of PatientLevelPrediction
 # 
@@ -23,18 +23,17 @@
 #' @details
 #' The function applied the trained model on the plpData to make predictions
 #' @param plpModel                         An object of type \code{plpModel} - a patient level prediction model
-#' @param population                       The population created using createStudyPopulation() who will have their risks predicted
 #' @param plpData                          An object of type \code{plpData} - the patient level prediction
 #'                                         data extracted from the CDM.
-#' @param index                            A data frame containing rowId: a vector of rowids and index: a vector of doubles the same length as the rowIds. If used, only the rowIds with a negative index value are used to calculate the prediction.  
-#' 
+#' @param population                       The population created using createStudyPopulation() who will have their risks predicted or a cohort without the outcome known
+#' @param timepoint                        The timepoint to predict risk (survival models only)
 #' @return
 #' A dataframe containing the prediction for each person in the population with an attribute metaData containing prediction details.
 #'
 
 # parent predict that calls the others
 #' @export
-predictPlp <- function(plpModel, population, plpData,  index=NULL){
+predictPlp <- function(plpModel, plpData, population, timepoint){
   
   if(is.null(plpModel))
     stop('No model input')
@@ -43,247 +42,158 @@ predictPlp <- function(plpModel, population, plpData,  index=NULL){
   if(is.null(plpData))
     stop('No plpData input')
   
-  # apply the feature transformations
-  if(!is.null(index)){
-    flog.trace(paste0('Calculating prediction for ',sum(index$index<0),' in test set'))
-    ind <- population$rowId%in%index$rowId[index$index<0]
+  
+  # do feature engineering/selection
+  plpData$covariateData <- do.call(
+    applyFeatureengineering, 
+    list(
+      covariateData = plpData$covariateData,
+      settings = plpModel$settings$featureEngineering
+    )
+  )
+  
+  ParallelLogger::logTrace('did FE')
+  
+  # do preprocessing
+  plpData$covariateData <- do.call(
+    applyTidyCovariateData, 
+    list(
+      covariateData = plpData$covariateData,
+      preprocessSettings = plpModel$settings$tidyCovariates
+    )
+  )
+  
+  ParallelLogger::logTrace('did tidy')
+  
+  # add timepoint if not missing to population attribute
+  if(!missing(timepoint)){
+    attr(population, 'timepoint') <- timepoint
   } else{
-    flog.trace(paste0('Calculating prediction for ',nrow(population),' in dataset'))
-    ind <- rep(T, nrow(population))
+    timepoint <- attr(population,'metaData')$populationSettings$riskWindowEnd
   }
   
-  # do the predction on the new data
-  if(class(plpModel)=='plpModel'){
-    # extract the classifier type
-    prediction <- plpModel$predict(plpData=plpData,population=population[ind,])
-    
-    if(nrow(prediction)!=nrow(population[ind,]))
-      flog.warn(paste0('Dimension mismatch between prediction and population test cases.  Population test: ',nrow(population[ind, ]), '-- Prediction:', nrow(prediction) ))
+  # apply prediction function
+  prediction <- do.call(
+    eval(parse(text = attr(plpModel, "predictionFunction"))), 
+    list(
+      plpModel = plpModel, 
+      data = plpData, 
+      cohort = population
+      )
+    )
+  
+  if(!is.null(attr(prediction, "metaData"))){
+    metaData <- attr(prediction, "metaData")
   } else{
-    flog.error('Non plpModel input')
-    stop()
+    metaData <- list()
   }
   
-  metaData <- list(predictionType="binary",
-                   cohortId = attr(population,'metaData')$cohortId,
-                   outcomeId = attr(population,'metaData')$outcomeId)
+  # add metaData
+  metaData$modelType <- attr(plpModel, 'modelType') #"binary", 
+  metaData$cohortId <- attr(population,'metaData')$cohortId
+  metaData$outcomeId <- attr(population,'metaData')$outcomeId
+  metaData$timepoint <- timepoint
   
   attr(prediction, "metaData") <- metaData
   return(prediction)
 }
 
-# default patient level prediction prediction  
-predict.plp <- function(plpModel,population, plpData, ...){
-  covariates <- limitCovariatesToPopulation(plpData$covariates, ff::as.ff(population$rowId))
-  prediction <- predictProbabilities(plpModel$model, population, covariates)
-  
-  return(prediction)
-}
 
-# for gxboost
-predict.xgboost <- function(plpModel,population, plpData, ...){ 
-  result <- toSparseM(plpData, population, map=plpModel$covariateMap)
-  data <- result$data[population$rowId,]
-  prediction <- data.frame(rowId=population$rowId, 
-                           value=stats::predict(plpModel$model, data)
-                           )
-  
-  prediction <- merge(population, prediction, by='rowId')
-  prediction <- prediction[,colnames(prediction)%in%c('rowId','outcomeCount','indexes', 'value')] # need to fix no index issue
-  attr(prediction, "metaData") <- list(predictionType = "binary") 
-  return(prediction)
-  
-}
 
-# TODO: edit caret methods (or remove as slow - replace with python)
-# caret model prediction 
-predict.python <- function(plpModel, population, plpData){
+applyFeatureengineering <- function(
+  covariateData,
+  settings
+){
   
-  # connect to python if not connected
-  if ( !PythonInR::pyIsConnected() || .Platform$OS.type=="unix"){ 
-    PythonInR::pyConnect()
-    PythonInR::pyOptions("numpyAlias", "np")
-    PythonInR::pyOptions("useNumpy", TRUE)
-    PythonInR::pyImport("numpy", as='np') # issues with this using as np
-    }
-  
-  # return error if we can't connect to python
-  if ( !PythonInR::pyIsConnected() ){
-    flog.error('Python not connect error')
-    stop()
+  # if a single setting make it into a list
+  if(!is.null(settings$funct)){
+    settings <- list(settings)
   }
   
-  ##PythonInR::pyImport("numpy", as="np") #crashing R
+  # add code for implementing the feature engineering
+  for(set in settings){
+    set$settings$trainData <- covariateData
+    covariateData <- do.call(eval(parse(text = set$funct)), set$settings)
+  }
   
-  flog.info('Setting inputs...')
-  PythonInR::pySet("dense", plpModel$dense)
-  PythonInR::pySet("model_loc", plpModel$model)
+  # dont do anything for now
+  return(covariateData)
   
-  flog.info('Mapping covariates...')
-  #load python model mapping.txt
-  # create missing/mapping using plpData$covariateRef
-  newData <- toSparsePython(plpData, population, map=plpModel$covariateMap)
-  
-  included <- plpModel$varImp$covariateId[plpModel$varImp$included>0] # does this include map?
-  included <- newData$map$newIds[newData$map$oldIds%in%included]-1 # python starts at 0, r at 1
-  PythonInR::pySet("included", as.matrix(sort(included)))
+}
 
-  # save population
-  if('indexes'%in%colnames(population)){
-    population$rowIdPython <- population$rowId-1 # -1 to account for python/r index difference
-    PythonInR::pySet('population', as.matrix(population[,c('rowIdPython','outcomeCount','indexes')]) )
+
+#NEED TO UPDATE....
+# fucntion for implementing the pre-processing (normalisation and redundant features removal)
+applyTidyCovariateData <- function(
+  covariateData,
+  preprocessSettings
+)
+{
+  
+  if(!FeatureExtraction::isCovariateData(covariateData)){stop("Data not of class CovariateData")}
+  
+  newCovariateData <- Andromeda::andromeda(covariateRef = covariateData$covariateRef,
+    analysisRef = covariateData$analysisRef)
+  
+  maxs <- preprocessSettings$normFactors
+  deleteRedundantCovariateIds <- preprocessSettings$deletedRedundantCovariateIds
+  deletedInfrequentCovariateIds <- preprocessSettings$deletedInfrequentCovariateIds
+  
+  # --- added for speed
+  deleteCovariateIds <- c(deleteRedundantCovariateIds,deletedInfrequentCovariateIds)
+  temp <- covariateData$covariateRef %>% dplyr::collect()
+  allCovariateIds <- temp$covariateId
+  covariateData$includeCovariates <- data.frame(covariateId = allCovariateIds[!allCovariateIds%in%deleteCovariateIds])
+  Andromeda::createIndex(covariateData$includeCovariates, c('covariateId'),
+    indexName = 'includeCovariates_covariateId')
+  on.exit(covariateData$includeCovariates <- NULL, add = TRUE)
+  # ---
+  
+  ParallelLogger::logInfo("Removing infrequent and redundant covariates and normalizing")
+  start <- Sys.time()       
+  
+  if(!is.null(maxs)){
+    if('bins'%in%colnames(maxs)){
+      covariateData$maxes <- tibble::as_tibble(maxs)  %>% dplyr::rename(covariateId = .data$bins) %>% 
+        dplyr::rename(maxValue = .data$maxs)
+    } else{
+      covariateData$maxes <- maxs #tibble::as_tibble(maxs)  %>% dplyr::rename(covariateId = bins)
+    }
+    on.exit(covariateData$maxes <- NULL, add = TRUE)
     
-  } else {
-    population$rowIdPython <- population$rowId-1 # -1 to account for python/r index difference
-    PythonInR::pySet('population', as.matrix(population[,c('rowIdPython','outcomeCount')]) )
-  }
-  
-  # run the python predict code:
-  flog.info('Executing prediction...')
-  PythonInR::pyExecfile(system.file(package='PatientLevelPrediction','python','python_predict.py'))
-  
-  #get the prediction from python and reformat:
-  flog.info('Returning results...')
-  prediction <- PythonInR::pyGet('prediction', simplify = F)
-  prediction <-  apply(prediction,1, unlist)
-  prediction <- t(prediction)
-  prediction <- as.data.frame(prediction)
-  attr(prediction, "metaData") <- list(predictionType="binary")
-  if(ncol(prediction)==4){
-    colnames(prediction) <- c('rowId','outcomeCount','indexes', 'value')
-  } else {
-    colnames(prediction) <- c('rowId','outcomeCount', 'value')
-  }
-  
-  # add 1 to rowId from python:
-  prediction$rowId <- prediction$rowId+1
-  
-  # TODO delete results
-  
-  return(prediction)
-}
-
-predict.knn <- function(plpData, population, plpModel, ...){
-  covariates <- limitCovariatesToPopulation(plpData$covariates, ff::as.ff(population$rowId))
-  prediction <- BigKnn::predictKnn(covariates = covariates,
-                                   cohorts=ff::as.ffdf(population[,!colnames(population)%in%'cohortStartDate']),
-                                   indexFolder = plpModel$model,
-                                   k = plpModel$modelSettings$modelParameters$k,
-                                   weighted = TRUE)
-  
-  # return the cohorts as a data frame with the prediction added as 
-  # a new column with the column name 'value'
-  prediction <- merge(population, prediction, by='rowId', 
-                      all.x=T, fill=0)
-  prediction$value[is.na(prediction$value)] <- 0
-  
-  return(prediction)
-}
-
-
-
-
-
-#' Create predictive probabilities
-#'
-#' @details
-#' Generates predictions for the population specified in plpData given the model.
-#'
-#' @return
-#' The value column in the result data.frame is: logistic: probabilities of the outcome, poisson:
-#' Poisson rate (per day) of the outome, survival: hazard rate (per day) of the outcome.
-#'
-#' @param predictiveModel   An object of type \code{predictiveModel} as generated using
-#'                          \code{\link{fitPlp}}.
-#' @param population        The population to calculate the prediction for
-#' @param covariates        The covariate part of PlpData containing the covariates for the population
-#' @export
-predictProbabilities <- function(predictiveModel, population, covariates) {
-  start <- Sys.time()
-
-  prediction <- predictFfdf(predictiveModel$coefficients,
-                            population,
-                            covariates,
-                            predictiveModel$modelType)
-  prediction$time <- NULL
-  attr(prediction, "modelType") <- predictiveModel$modelType
-  attr(prediction, "cohortId") <- attr(population, "metadata")$cohortId
-  attr(prediction, "outcomeId") <- attr(population, "metadata")$outcomeId
-
-  delta <- Sys.time() - start
-  flog.info("Prediction took", signif(delta, 3), attr(delta, "units"))
-  return(prediction)
-}
-
-#' Generated predictions from a regression model
-#'
-#' @param coefficients   A names numeric vector where the names are the covariateIds, except for the
-#'                       first value which is expected to be the intercept.
-#' @param population       A data frame containing the population to do the prediction for
-#' @param covariates     A data frame or ffdf object containing the covariates with predefined columns
-#'                       (see below).
-#' @param modelType      Current supported types are "logistic", "poisson", or "survival".
-#'
-#' @details
-#' These columns are expected in the outcome object: \tabular{lll}{ \verb{rowId} \tab(integer) \tab
-#' Row ID is used to link multiple covariates (x) to a single outcome (y) \cr \verb{time} \tab(real)
-#' \tab For models that use time (e.g. Poisson or Cox regression) this contains time \cr \tab
-#' \tab(e.g. number of days) \cr } These columns are expected in the covariates object: \tabular{lll}{
-#' \verb{rowId} \tab(integer) \tab Row ID is used to link multiple covariates (x) to a single outcome
-#' (y) \cr \verb{covariateId} \tab(integer) \tab A numeric identifier of a covariate \cr
-#' \verb{covariateValue} \tab(real) \tab The value of the specified covariate \cr }
-#'
-#' @export
-predictFfdf <- function(coefficients, population, covariates, modelType = "logistic") {
-  if (!(modelType %in% c("logistic", "poisson", "survival"))) {
-    stop(paste("Unknown modelType:", modelType))
-  }
-  if (class(covariates) != "ffdf") {
-    stop("Covariates should be of type ffdf")
-  }
-  intercept <- coefficients[names(coefficients)%in%'(Intercept)']
-  if(length(intercept)==0) intercept <- 0
-  coefficients <- coefficients[!names(coefficients)%in%'(Intercept)']
-  coefficients <- data.frame(beta = as.numeric(coefficients),
-                             covariateId = as.numeric(names(coefficients)))
-  coefficients <- coefficients[coefficients$beta != 0, ]
-  if(sum(coefficients$beta != 0)>0){
-    prediction <- merge(covariates, ff::as.ffdf(coefficients), by = "covariateId")
-    prediction$value <- prediction$covariateValue * prediction$beta
-    prediction <- bySumFf(prediction$value, prediction$rowId)
-    colnames(prediction) <- c("rowId", "value")
-   # prediction <- merge(population, ff::as.ram(prediction), by = "rowId", all.x = TRUE)
-    prediction <- merge(ff::as.ram(population), prediction, by ="rowId", all.x = TRUE)
-    prediction$value[is.na(prediction$value)] <- 0
-    prediction$value <- prediction$value + intercept
+    # --- added for speed
+    Andromeda::createIndex(covariateData$maxes, c('covariateId'),
+      indexName = 'maxes_covariateId')
+    # ---
+    
+    newCovariateData$covariates <- covariateData$covariates %>%  
+      dplyr::inner_join(covariateData$includeCovariates, by='covariateId') %>% # added as join
+      dplyr::inner_join(covariateData$maxes, by = 'covariateId') %>%
+      dplyr::mutate(value = 1.0*.data$covariateValue/.data$maxValue) %>%
+      dplyr::select(- .data$covariateValue) %>%
+      dplyr::rename(covariateValue = .data$value)
   } else{
-    warning('Model had no non-zero coefficients so predicted same for all population...')
-    prediction <- population
-    prediction$value <- rep(0, nrow(population)) + intercept
+    newCovariateData$covariates <- covariateData$covariates %>% 
+      dplyr::inner_join(covariateData$includeCovariates, by='covariateId')
   }
-  if (modelType == "logistic") {
-    link <- function(x) {
-      return(1/(1 + exp(0 - x)))
-    }
-    prediction$value <- link(prediction$value)
-  } else if (modelType == "poisson" || modelType == "survival") {
-    prediction$value <- exp(prediction$value)
-  }
-  return(prediction)
+  
+  # reduce covariateRef
+  newCovariateData$covariateRef <- covariateData$covariateRef %>% 
+    dplyr::inner_join(covariateData$includeCovariates, by='covariateId')
+  
+  # adding index for restrict to pop
+  Andromeda::createIndex(
+    newCovariateData$covariates, 
+    c('rowId'),
+    indexName = 'ncovariates_rowId'
+  )
+  
+  
+  class(newCovariateData) <- "CovariateData"
+  
+  delta <- Sys.time() - start
+  writeLines(paste("Removing infrequent and redundant covariates covariates and normalizing took", signif(delta, 3), attr(delta, "units")))
+  
+  # return processed data
+  return(newCovariateData)
 }
-
-#' Compute sum of values binned by a second variable
-#'
-#' @param values   An ff object containing the numeric values to be summed
-#' @param bins     An ff object containing the numeric values to bin by
-#'
-#' @examples
-#' values <- ff::as.ff(c(1, 1, 2, 2, 1))
-#' bins <- ff::as.ff(c(1, 1, 1, 2, 2))
-#' bySumFf(values, bins)
-#'
-#' @export
-bySumFf <- function(values, bins) {
-  bySum(values, bins)
-}
-

@@ -1,6 +1,6 @@
 # @file RunMultiplePlp.R
 #
-# Copyright 2017 Observational Health Data Sciences and Informatics
+# Copyright 2021 Observational Health Data Sciences and Informatics
 #
 # This file is part of PatientLevelPrediction
 #
@@ -16,841 +16,617 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#' Develop patient-level predcition  models for multiple outcomes, target popuations and 
-#' settings
+
+#' Run a list of predictions analyses
 #'
-#' @param outputFolder                The directory to save the results and data to - needs read/write privileges
-#' @param connectionDetails          An R object of type\cr\code{connectionDetails} created using the
-#'                                   function \code{createConnectionDetails} in the
-#'                                   \code{DatabaseConnector} package.
-#' @param cdmDatabaseSchema            The name of the database schema that contains the OMOP CDM
-#'                                     instance.  Requires read permissions to this database. On SQL
-#'                                     Server, this should specifiy both the database and the schema,
-#'                                     so for example 'cdm_instance.dbo'.
-#' @param oracleTempSchema             For Oracle only: the name of the database schema where you want
-#'                                     all temporary tables to be managed. Requires create/insert
-#'                                     permissions to this database.
-#' @param cohortDatabaseSchema         The name of the database schema that is the location where the
-#'                                     cohort data used to define the at risk cohort is available.
-#'                                     If cohortTable = DRUG_ERA, cohortDatabaseSchema is not used
-#'                                     by assumed to be cdmSchema.  Requires read permissions to this
-#'                                     database.
-#' @param cohortTable                  The tablename that contains the at risk cohort.  If
-#'                                     cohortTable <> DRUG_ERA, then expectation is cohortTable has
-#'                                     format of COHORT table: cohort_concept_id, SUBJECT_ID,
-#'                                     COHORT_START_DATE, COHORT_END_DATE.
-#' @param outcomeDatabaseSchema            The name of the database schema that is the location where
-#'                                         the data used to define the outcome cohorts is available. If
-#'                                         cohortTable = CONDITION_ERA, exposureDatabaseSchema is not
-#'                                         used by assumed to be cdmSchema.  Requires read permissions
-#'                                         to this database.
-#' @param outcomeTable                     The tablename that contains the outcome cohorts.  If
-#'                                         outcomeTable <> CONDITION_OCCURRENCE, then expectation is
-#'                                         outcomeTable has format of COHORT table:
-#'                                         COHORT_DEFINITION_ID, SUBJECT_ID, COHORT_START_DATE,
-#'                                         COHORT_END_DATE.
-#' @param cdmVersion                   Define the OMOP CDM version used: currently support "4" and "5".
-#' @param studyStartDate               A calendar date specifying the minimum date that a cohort index
-#'                                     date can appear. Date format is 'yyyymmdd'.
-#' @param studyEndDate                 A calendar date specifying the maximum date that a cohort index
-#'                                     date can appear. Date format is 'yyyymmdd'. Important: the study
-#'                                     end data is also used to truncate risk windows, meaning no outcomes
-#'                                     beyond the study end date will be considered.
-#' @param atRiskCohortIds            A vector containing the unique identifiers to define the at risk cohorts.  
-#'                                   Each at risk cohortId is used to select the cohort_concept_id in the cohort-like table.
-#'                                    
-#' @param outcomeIds                   A list of cohort_definition_ids used to define outcomes.
-#' @param covariateSettings            An object of type \code{covariateSettings} as created using the
-#'                                     \code{createCovariateSettings} function in the
-#'                                     \code{FeatureExtraction} package.  This can be a list of multiple
-#'                                     settings.
-#' @param timeAtRisks                A list detailing the time at risk intervals that willbe used
-#'                                   to create the prediciton models (the period of time we wish to predict the outcome
-#'                                   occurence within) created using the function \code{setTimeAtRisks}.
-#' @param modelSettings            A list of model settings created using the \code{setGradientBoostingMachine}, 
-#'                                 \code{setRandomForest}, \code{setLassoLogisticRegression}, \code{setNaiveBayes} or
-#'                                 \code{setKNN}.
-#' @param internalValidation       The type of internal validation for the model.  Either 
-#'                                 'person' which stratifies by outcome to partion into test/train sets or
-#'                                 'time' which picks a set date and all people with an at risk cohort
-#'                                 start date prior to this join the train set and people after join the
-#'                                 test set. 
-#' @param testFraction            The fracion of the target population to include into the test set
-#' @param nfold                   The number of cross validation folds to apply when finding the optimal hyperparameters
-#' @param splitSeed               (default NULL) The seed used to do the random split for internalValidation='person'
-#' @param indexes                The nfold validation indexes
-#' @param verbosity               Sets the level of the verbosity. If the log level is at or higher in priority than the logger threshold, a message will print. The levels are:
-#'                                         \itemize{
-#'                                         \item{DEBUG}{Highest verbosity showing all debug statements}
-#'                                         \item{TRACE}{Showing information about start and end of steps}
-#'                                         \item{INFO}{Show informative information (Default)}
-#'                                         \item{WARN}{Show warning messages}
-#'                                         \item{ERROR}{Show error messages}
-#'                                         \item{FATAL}{Be silent except for fatal errors}
-#'                                         }                                             
+#' @details
+#' This function will run all specified predictions as defined using . 
+#'
+#' @param databaseDetails               The database settings created using \code{createDatabaseDetails()}
+#' @param modelDesignList                A list of model designs created using \code{createModelDesign()}
+#' @param onlyFetchData                  Only fetches and saves the data object to the output folder without running the analysis.
+#' @param splitSettings                  The train/validation/test splitting used by all analyses created using \code{createDefaultSplitSetting()}
+#' @param cohortDefinitions               A list of cohort definitions for the target and outcome cohorts
+#' @param logSettings                    The setting spexcifying the logging for the analyses created using \code{createLogSettings()}
+#' @param saveDirectory                   Name of the folder where all the outputs will written to.
+#' 
+#' @return
+#' A data frame with the following columns: \tabular{ll}{ \verb{analysisId} \tab The unique identifier
+#' for a set of analysis choices.\cr \verb{cohortId} \tab The ID of the target cohort populations.\cr
+#' \verb{outcomeId} \tab The ID of the outcomeId.\cr \verb{dataLocation} \tab The location where the plpData was saved \cr \verb{evaluationFolder} \tab The name of file containing the evaluation saved as a csv
+#'  \cr \verb{the settings ids} \tab The ids for all other settings used for model development.\cr }
 #'
 #' @export
-runPlpAnalyses <- function(outputFolder = getwd(),
-                           connectionDetails=NULL, 
-                           cdmDatabaseSchema=NULL,
-                           oracleTempSchema = cdmDatabaseSchema,
-                           cohortDatabaseSchema = cdmDatabaseSchema,
-                           cohortTable = "cohort",
-                           outcomeDatabaseSchema = cdmDatabaseSchema,
-                           outcomeTable = "cohort",
-                           cdmVersion = "5",
-                           studyStartDate="", studyEndDate = "", 
-                           atRiskCohortIds=1, outcomeIds=2, 
-                           covariateSettings=list(FeatureExtraction::createCovariateSettings(useCovariateDemographics=T,
-                                                                                             useCovariateDemographicsGender=T,
-                                                                                             useCovariateDemographicsRace=T,
-                                                                                             useCovariateDemographicsAge=T,
-                                                                                             useCovariateDemographicsYear = F,
-                                                                                             useCovariateDemographicsMonth = T,
-                                                                                             useCovariateConditionOccurrence=T,
-                                                                                             useCovariateConditionOccurrenceLongTerm=T),
-                                                  FeatureExtraction::createCovariateSettings(useCovariateDemographics=T,
-                                                                                             useCovariateDemographicsGender=T,
-                                                                                             useCovariateDemographicsRace=T,
-                                                                                             useCovariateDemographicsAge=T,
-                                                                                             useCovariateDemographicsYear = F,
-                                                                                             useCovariateDemographicsMonth = T,
-                                                                                             useCovariateDrugExposure=T,
-                                                                                             useCovariateDrugExposureLongTerm=T)
-                           ),
-                           timeAtRisks=list(setTimeAtRisk(riskWindowEnd=365),
-                                            setTimeAtRisk(riskWindowEnd=365*2)), 
-                           modelSettings=NULL,
-                           internalValidation='time', testFraction=0.25, nfold=3,
-                           splitSeed=NULL, indexes=NULL, # need to add these to into
-                           verbosity=futile.logger::INFO){
-  
-  
-  # add a summary of the results
-  #======================
-  # then do covariate, model and tar as rds in folder?
-  if(!dir.exists(file.path(outputFolder, 'settings')))
-    dir.create(file.path(outputFolder, 'settings'), recursive = T)
-  saveRDS(covariateSettings, file.path(outputFolder, 'settings','covariateSettings.rds'))
-  saveRDS(timeAtRisks, file.path(outputFolder, 'settings','timeatrisks.rds'))
-  saveRDS(modelSettings, file.path(outputFolder, 'settings','modelSettings.rds'))
-  #======================
-  
-  # setting initial values:
-  analysisId <- 0
-  reference <- list()
-  
-  flog.info("Running multiple prediction analyses")
-  flog.seperator()
-  
-  flog.info("Step 1: finding superset of covariate settings...")
-  
-  # find union of covariates for extracting 
-  unionCovariateSettings <- supersetCovariates(covariateSettings)
-  
-  # for each Target popualtion
-  for(atRiskCohort in atRiskCohortIds){
-    reference$atRiskCohort <- atRiskCohort
-    
-    flog.info("Extracting data for at risk cohort %s", atRiskCohort)
-    
-    
-    # get the data for all outcomes using the union of the covaraites
-    dataExtractSettings <- list(connectionDetails=connectionDetails, 
-                                cdmDatabaseSchema=cdmDatabaseSchema,
-                                oracleTempSchema = oracleTempSchema,
-                                cohortDatabaseSchema = cohortDatabaseSchema,
-                                cohortTable = cohortTable,
-                                outcomeDatabaseSchema = outcomeDatabaseSchema,
-                                outcomeTable = outcomeTable,
-                                cdmVersion = cdmVersion,
-                                outcomeIds=outcomeIds,
-                                cohortId=atRiskCohort,  
-                                studyStartDate = studyStartDate,
-                                studyEndDate = studyEndDate,
-                                excludeDrugsFromCovariates = F, #ToDo: rename to excludeFromFeatures
-                                firstExposureOnly = FALSE,
-                                washoutPeriod = 0,
-                                covariateSettings = unionCovariateSettings
-    )
-    
-    
-    plpDataTemp <- do.call(getPlpData,dataExtractSettings)
-    
-    # now for each covariateSetting restrict to that setting
-    plpDatas<- lapply( lapply(covariateSettings, 
-                              function(x) list(covariateSetting=x, plpData=plpDataTemp)), 
-                       function(x2) do.call(restrictCovariates, x2)  )
-    #c(covariateSetting=covariateSettings, plpData=plpDataTemp)
-    for(covId in 1:length(plpDatas)){
-      reference$covId <- covId
-      
-      plpData <- plpDatas[[covId]]
-      # save plpData
-      PatientLevelPrediction::savePlpData(plpData, 
-                                          file=file.path(outputFolder, 'Data', paste('cid',atRiskCohort,'covId',covId, sep='_')))
-      
-      # now for each O
-      for (outcome in outcomeIds){
-        reference$outcome <- outcome
-        
-        for(tid in 1:length(timeAtRisks)){
-          reference$tid <- tid
-          tar <- timeAtRisks[[tid]]
-          
-          flog.info("Creating dataset...")
-          
-          popSettings <- c(list(plpData=plpData,
-                                outcomeId=outcome,
-                                binary = T,
-                                verbosity = verbosity), tar)
-          
-          # do the population
-          population <- do.call(createStudyPopulation, popSettings)
-          
-          #save population
-          if(!dir.exists(file.path(outputFolder, 'Populations')))
-            dir.create(file.path(outputFolder, 'Populations'))
-          write.csv(population, file.path(outputFolder, 'Populations', paste0('cid_',atRiskCohort,'_oid_',outcome,'_covId_',covId,'_tid_',tid,'.csv')))
-          
-          for(mid in 1:length(modelSettings)){
-            m <- modelSettings[[mid]]
-            reference$mid <- m$mid
-            
-            analysisId <- analysisId + 1
-            reference$analysisId <- analysisId
-            
-            # do the settings
-            rownames(plpData$covariates) <- NULL # a bug fix?
-            plpSettings <- list(population=population, 
-                                plpData=plpData,
-                                modelSettings=m,
-                                testSplit = internalValidation, testFraction=testFraction, 
-                                splitSeed=splitSeed, nfold=nfold, indexes=indexes,
-                                save=NULL, saveModel=F,
-                                verbosity=verbosity, analysisId=analysisId)
-            
-            # runPlp
-            result <- do.call(runPlp, plpSettings)
-            
-            # save the results into suitable structure:
-            flog.info("Saving result...")
-            PatientLevelPrediction::savePlpResult(result, file.path(outputFolder,'Analysis',analysisId,'Results'))
-            
-            # append the details to the referenceTable
-            if(!file.exists(file.path(outputFolder, 'referenceTable.txt')))
-              write.table(t(unlist(reference)), file.path(outputFolder, 'referenceTable.txt'), 
-                          row.names = F, col.names = T )
-            if(file.exists(file.path(outputFolder, 'referenceTable.txt')))
-              write.table(t(unlist(reference)), file.path(outputFolder, 'referenceTable.txt'), 
-                          row.names = F, col.names = F, append = T )
-            
-            # append the details to the summaryTable
-            resultSum <- result$performanceEvaluation$evaluationStatistics[result$performanceEvaluation$evaluationStatistics[,2]=='test',]
-            
-            if(!file.exists(file.path(outputFolder, 'summaryTable.txt')))
-              write.table(resultSum, file.path(outputFolder, 'summaryTable.txt'), 
-                          row.names = F, col.names = T )
-            if(file.exists(file.path(outputFolder, 'summaryTable.txt')))
-              write.table(resultSum, file.path(outputFolder, 'summaryTable.txt'), 
-                          row.names = F, col.names = F, append = T )
-            
-          } # end for models
-          
-        } # end for tar
-        
-      } # end for O
-      
-    } # end for covariate setting
-    
-  } # end for T
-  
-  
-}
-
-#' setTimeAtRisk
-#' 
-#' create the timeAtRisks for the multiple analysis studies
-#' 
-#' @param includeAllOutcomes     Do you want to include people who have the outcome but are not observed for the whole at risk period?
-#' @param firstExposureOnly      Only consider the first time occurence of the outcome?
-#' @param washoutPeriod          The minimum prior observation in days a person required to be included 
-#' @param removeSubjectsWithPriorOutcome   Remove people who have the outcome some period before the time at risk?
-#' @param priorOutcomeLookback   The number of days prior to investigate for the variable removeSubjectsWithPriorOutcome
-#' @param riskWindowStart        The number of days after the at risk popualtion subject's index date to start the time at risk period
-#' @param addExposureDaysToStart Should the risk window start be relative to the index end date instead?
-#' @param riskWindowEnd          The number of days after the at risk popualtion subject's index date to end the time at risk period
-#' @param addExposureDaysToEnd Should the risk window end be relative to the index end date instead?
-#' @param requireTimeAtRisk     Should you only include people with a minimum time at risk period?
-#' @param minTimeAtRisk         If requireTimeAtRisk is TRUE, then this is the minimum number of days a person must be at risk
-#' 
-#' @export 
-setTimeAtRisk <- function(includeAllOutcomes = T,
-                          firstExposureOnly = F,
-                          washoutPeriod = 0,
-                          removeSubjectsWithPriorOutcome = T,
-                          priorOutcomeLookback = 99999,
-                          riskWindowStart = 1,
-                          addExposureDaysToStart = F,
-                          riskWindowEnd = 365,
-                          addExposureDaysToEnd = F,
-                          requireTimeAtRisk = T,
-                          minTimeAtRisk=riskWindowEnd-riskWindowStart 
+runMultiplePlp <- function(
+  databaseDetails = createDatabaseDetails(),
+  modelDesignList = list(
+    createModelDesign(targetId = 1, outcomeId = 2, modelSettings = setLassoLogisticRegression()), 
+    createModelDesign(targetId = 1, outcomeId = 3, modelSettings = setLassoLogisticRegression())
+  ),
+  onlyFetchData = F,
+  splitSettings = createDefaultSplitSetting(
+    type = "stratified", 
+    testFraction = 0.25,
+    trainFraction = 0.75, 
+    splitSeed = 123, 
+    nfold = 3
+  ),
+  cohortDefinitions = NULL,
+  logSettings = createLogSettings(
+    verbosity = "DEBUG", 
+    timeStamp = T, 
+    logName = "runPlp Log"
+  ),
+  saveDirectory = getwd()
 ){
   
-  return(list(includeAllOutcomes = includeAllOutcomes,
-              firstExposureOnly = firstExposureOnly,
-              washoutPeriod = washoutPeriod,
-              removeSubjectsWithPriorOutcome = removeSubjectsWithPriorOutcome,
-              priorOutcomeLookback = priorOutcomeLookback,
-              requireTimeAtRisk = requireTimeAtRisk,
-              minTimeAtRisk=minTimeAtRisk, 
-              riskWindowStart = riskWindowStart,
-              addExposureDaysToStart = addExposureDaysToStart,
-              riskWindowEnd = riskWindowEnd,
-              addExposureDaysToEnd = addExposureDaysToEnd))
-}
-
-
-supersetCovariates <- function(covariateSettings){
+  #input checks
+  checkIsClass(databaseDetails, c('databaseDetails'))
+  checkIsClass(modelDesignList, c('list', 'modelDesign'))
+  checkIsClass(onlyFetchData, 'logical')
+  checkIsClass(splitSettings, 'splitSettings')
+  checkIsClass(logSettings, 'logSettings')
+  checkIsClass(saveDirectory, 'character')
+  if(!dir.exists(saveDirectory)){
+    dir.create(saveDirectory, recursive = T)
+  }
   
-  # union the covariates and create a metaData with the analysisIds included/exclude, conceptIds include/excluded
-  if(class(covariateSettings)=='covariateSettings')
-    return(covariateSettings)
+  # get idList
+  idList <- getidList(modelDesignList = modelDesignList)
   
-  if(class(covariateSettings)=='list'){
-    
-    # return a boolean vector if any of the settings are true for it 
-    # of the minimum of the deleteCovariatesSmallCount settings
-    anyTrue <- function(name){
-      if(!name%in%c('deleteCovariatesSmallCount','excludedCovariateConceptIds','includedCovariateConceptIds') ){
-        i <- which(names(covariateSettings[[1]])==name)
-        return(any(unlist(lapply(covariateSettings, function(x) x[[i]]))))
+  # get settings data.frame
+  settingstable <- getSettingsTable(
+    modelDesignList = modelDesignList, 
+    idList = idList
+  )
+  
+  if(!is.null(cohortDefinitions)){
+    cohortNames <- data.frame(
+      targetName = getNames(cohortDefinitions, settingstable$targetId),
+      outcomeName = getNames(cohortDefinitions, settingstable$outcomeId)
+      )
+    settingstable <- cbind(cohortNames, settingstable)
+  }
+  
+  utils::write.csv(settingstable, file.path(saveDirectory,'settings.csv'), row.names = F)
+  saveJsonFile(idList, file.path(saveDirectory,'settings.json'))
+  
+  # list(targetId, covariateSetting, outcomeIds, saveLocation)
+  dataSettings <- getDataSettings(settingstable)
+  
+  # extract data
+  for(i in 1:length(dataSettings)){
+    dataExists <- length(dir(file.path(saveDirectory, dataSettings[[i]]$dataLocation)))>0
+    if(!dataExists){
+      ParallelLogger::logInfo(paste('Extracting data for cohort', dataSettings[[i]]$targetId, 'to', file.path(saveDirectory, dataSettings[[i]]$dataLocation)))
+      
+      databaseDetails$cohortId <- dataSettings[[i]]$targetId
+      databaseDetails$outcomeIds <- dataSettings[[i]]$outcomeIds
+      
+      plpDataSettings <- list(
+        databaseDetails = databaseDetails,
+        covariateSettings = getSettingFromId(idList, type = 'covariateSettings', dataSettings[[i]]$covariateSettings),
+        restrictPlpDataSettings = getSettingFromId(idList, type = 'restrictPlpDataSettings', dataSettings[[i]]$restrictPlpDataSettings)
+        )
+      
+      
+      plpData <- tryCatch(
+        {do.call(getPlpData, plpDataSettings)},
+        error = function(e){ParallelLogger::logInfo(e); return(NULL)}
+      )
+      if(!is.null(plpData)){
+        savePlpData(plpData, file.path(saveDirectory, dataSettings[[i]]$dataLocation))
       }
-      if(name=='deleteCovariatesSmallCount'){
-        return(min(unlist(lapply(covariateSettings, function(x) x$deleteCovariatesSmallCount))) )
-      }
-      if(name=='excludedCovariateConceptIds'){
-        if(sum(unlist(lapply(covariateSettings, function(x) is.null(x$excludedCovariateConceptIds))))>0){
-          return(NULL)
-        } else {
-          return(Reduce(intersect, (lapply(covariateSettings, function(x) x$excludedCovariateConceptIds) ) ))
+    } else{
+      ParallelLogger::logInfo(paste('Data for cohort', dataSettings[[i]]$targetId, 'exists at', file.path(saveDirectory, dataSettings[[i]]$dataLocation)))
+    }
+  }
+  
+  # runPlp
+  if(!onlyFetchData){
+    for(i in 1:nrow(settingstable)){
+      modelDesign <- modelDesignList[[i]]
+      settings <- settingstable[i,]
+      
+      dataExists <- length(dir(file.path(saveDirectory, settings$dataLocation)))>0
+      
+      if(dataExists){
+        plpData <- PatientLevelPrediction::loadPlpData(file.path(saveDirectory, settings$dataLocation))
+        
+        analysisExists <- file.exists(file.path(saveDirectory, settings$analysisId,'plpResult', 'runPlp.rds'))
+        if(!analysisExists){
+          
+          runPlpSettings <- list(
+            plpData = plpData,
+            outcomeId = modelDesign$outcomeId,
+            analysisId = settings$analysisId,
+            populationSettings = modelDesign$populationSettings,
+            splitSettings = splitSettings,
+            sampleSettings = modelDesign$sampleSettings,
+            featureEngineeringSettings = modelDesign$featureEngineeringSettings,
+            preprocessSettings = modelDesign$preprocessSettings,
+            modelSettings = modelDesign$modelSettings,
+            logSettings = logSettings,
+            executeSettings = modelDesign$executeSettings,
+            saveDirectory = saveDirectory
+          )
+          
+          result <- tryCatch(
+            {do.call(runPlp, runPlpSettings)},
+            error = function(e){ParallelLogger::logInfo(e); return(NULL)}
+          )
+        } else{
+          ParallelLogger::logInfo(paste('Analysis ', settings$analysisId, 'exists at', file.path(saveDirectory, settings$analysisId)))
         }
       }
-      if(name=='includedCovariateConceptIds'){
-        #if(sum(unlist(lapply(covariateSettings, function(x) !is.null(x$includedCovariateConceptIds))))==0){
-        #  return(NULL)
-        #} else {
-        return(Reduce(union,(lapply(covariateSettings, function(x) x$includedCovariateConceptIds)) ) )
-        #}
-      }
     }
     
-    covNames <- names(FeatureExtraction::createCovariateSettings(useCovariateDemographics = T,
-                                                                 useCovariateDemographicsGender = F,
-                                                                 useCovariateDemographicsAge = F,
-                                                                 useCovariateDrugExposure = T,
-                                                                 useCovariateDrugExposureShortTerm = T, 
-                                                                 excludedCovariateConceptIds = c(13,20), 
-                                                                 includedCovariateConceptIds = c(56),
-                                                                 deleteCovariatesSmallCount = 10))
     
-    result <- lapply(covNames, anyTrue)
-    names(result) <- covNames
+  }
+  return(invisible(settingstable))
+}
+
+
+#' Specify settings for deceloping a single model 
+#'
+#' @details
+#' This specifies a single analysis for developing as single model
+#'
+#' @param targetId              The id of the target cohort that will be used for data extraction (e.g., the ATLAS id)
+#' @param outcomeId              The id of the outcome that will be used for data extraction (e.g., the ATLAS id)
+#' @param restrictPlpDataSettings       The settings specifying the extra restriction settings when extracting the data created using \code{createRestrictPlpDataSettings()}.
+#' @param populationSettings             The population settings specified by \code{createStudyPopulationSettings()}
+#' @param covariateSettings              The covariate settings, this can be a list or a single \code{'covariateSetting'} object.
+#' @param featureEngineeringSettings      Either NULL or an object of class \code{featureEngineeringSettings} specifying any feature engineering used during model development
+#' @param sampleSettings                  Either NULL or an object of class \code{sampleSettings} with the over/under sampling settings used for model development
+#' @param preprocessSettings              Either NULL or an object of class \code{preprocessSettings} created using \code{createPreprocessingSettings()}
+#' @param modelSettings                   The model settings such as \code{setLassoLogisticRegression()}
+#' @param runCovariateSummary             Whether to run the covariateSummary
+#' 
+#' @return
+#' A list with analysis settings used to develop a single prediction model
+#'
+#' @export
+createModelDesign <- function(
+  targetId,
+  outcomeId,
+  restrictPlpDataSettings = createRestrictPlpDataSettings(),
+  populationSettings = createStudyPopulationSettings(),
+  covariateSettings = FeatureExtraction::createDefaultCovariateSettings(),
+  featureEngineeringSettings = NULL,
+  sampleSettings = NULL,
+  preprocessSettings = NULL,
+  modelSettings = NULL,
+  runCovariateSummary = T
+){
+  
+  checkIsClass(targetId, c('numeric','integer'))
+  checkIsClass(outcomeId, c('numeric','integer'))
+  
+  checkIsClass(populationSettings, c('populationSettings'))
+  checkIsClass(restrictPlpDataSettings, 'restrictPlpDataSettings')
+  checkIsClass(covariateSettings, c('covariateSettings', 'list'))
+  
+  useFE <- F
+  if(!is.null(featureEngineeringSettings)){
+    checkIsClass(featureEngineeringSettings, c('featureEngineeringSettings'))
+    useFE <- T
+  } else{
+    featureEngineeringSettings <- createFeatureEngineeringSettings(type = "none")
+  }
+  
+  useSample <- F
+  if(!is.null(sampleSettings)){
+    checkIsClass(sampleSettings, c('sampleSettings'))
+    useSample <- T
+  } else{
+    sampleSettings <- createSampleSettings(type = "none")
+  }
+  
+  usePreprocess <- F
+  if(!is.null(preprocessSettings)){
+    checkIsClass(preprocessSettings, c('preprocessSettings'))
+    usePreprocess <- T
+  } else{
+    preprocessSettings <- createPreprocessSettings(
+      minFraction = 0.001,
+      normalize = T
+    )
+  }
+  
+  checkIsClass(modelSettings, c('modelSettings'))
+  
+  settings <- list(
+    targetId = targetId,
+    outcomeId = outcomeId,
+    restrictPlpDataSettings = restrictPlpDataSettings,
+    covariateSettings = covariateSettings,
+    populationSettings = populationSettings,
+    sampleSettings = sampleSettings,
+    featureEngineeringSettings = featureEngineeringSettings,
+    preprocessSettings = preprocessSettings,
+    modelSettings = modelSettings,
+    executeSettings = createExecuteSettings(
+      runSplitData = T,
+      runSampleData = useSample,
+      runfeatureEngineering = useFE,
+      runPreprocessData = usePreprocess,
+      runModelDevelopment = !is.null(modelSettings),
+      runCovariateSummary =  runCovariateSummary
+    )
     
-    attr(result, "fun") <- "getDbDefaultCovariateData"
-    attr(result, "class") <- "covariateSettings"
-    attr(result, "names") <- covNames
+  )
+  
+  class(settings) <- 'modelDesign'
+  return(settings)
+  
+}
+
+
+#' Save the modelDesignList to a json file
+#'
+#' @details
+#' This function creates a json file with the modelDesignList saved
+#' 
+#' @param modelDesignList          A list of modelDesigns created using \code{createModelDesign()}
+#' @param saveDirectory            The directory to save the modelDesignList settings
+#'                                       
+#' @examples
+#' \dontrun{
+#' savePlpAnalysesJson(
+#' modelDesignList = list(
+#' createModelDesign(targetId = 1, outcomeId = 2, modelSettings = setLassoLogisticRegression()), 
+#' createModelDesign(targetId = 1, outcomeId = 3, modelSettings = setLassoLogisticRegression())
+#' ),
+#' saveDirectory = 'C:/bestModels'
+#' )
+#' }
+#'
+#' @export
+savePlpAnalysesJson <- function(
+  modelDesignList = list(
+  createModelDesign(targetId = 1, outcomeId = 2, modelSettings = setLassoLogisticRegression()), 
+  createModelDesign(targetId = 1, outcomeId = 3, modelSettings = setLassoLogisticRegression())
+  ),
+  saveDirectory = NULL
+  ){
+  
+  if(class(modelDesignList) == 'modelDesign'){
+    modelDesignList <- list(modelDesignList)
+  }
+  
+  lapply(modelDesignList, function(x){checkIsClass(x, 'modelDesign')})
+
+  
+  # save this as a json
+  modelDesignList <- lapply(modelDesignList, function(x) prepareToJson(x))
+  jsonSettings <- list(analyses = modelDesignList) # TODO: rename this ModelDesignList?
+  
+  if(!is.null(saveDirectory)){
+    checkIsClass(saveDirectory, 'character')
     
-    return(result)
+    if(!dir.exists(saveDirectory)){
+      dir.create(saveDirectory, recursive = T)
+    }
+    
+    modelDesignList <- jsonlite::toJSON(
+      x = jsonSettings, 
+      pretty = T, 
+      digits = 23, 
+      auto_unbox=TRUE, 
+      null = "null"
+      )
+    write(modelDesignList, file.path(saveDirectory,"predictionAnalysisList.json"))
+    
+    # should we add splitSettings to this and the input?
+    
+    return(file.path(saveDirectory,"predictionAnalysisList.json")) 
+  }
+  
+  return(jsonSettings)
+}
+
+
+#' Load the multiple prediction json settings from a file
+#'
+#' @details
+#' This function interprets a json with the multiple prediction settings and creates a list 
+#' that can be combined with connection settings to run a multiple prediction study
+#' 
+#' @param jsonFileLocation    The location of the file 'predictionAnalysisList.json' with the modelDesignList  
+#'                                      
+#' @examples
+#' \dontrun{
+#' modelDesignList <- loadPlpAnalysesJson('location of json settings')$analysis
+#' }
+#'
+#' @export
+loadPlpAnalysesJson <- function(
+  jsonFileLocation 
+){
+  
+  checkIsClass(jsonFileLocation, 'character')
+  if(!file.exists(jsonFileLocation)){
+    ParallelLogger::logError('Invalid directory - does not exist')
+  }
+  
+  if(!file.exists(file.path(jsonFileLocation))){
+    ParallelLogger::logError('predictionAnalysisList.json not found ')
+  }
+  
+  
+  json <- tryCatch(
+    {readChar(jsonFileLocation, file.info(jsonFileLocation)$size)},
+    error= function(cond) {
+      ParallelLogger::logInfo('Issue with loading json file...');
+      ParallelLogger::logError(cond)
+    })
+  json <- tryCatch(
+    {jsonlite::fromJSON(json, simplifyVector = T, simplifyDataFrame = F, simplifyMatrix = T)},
+    error = function(cond) {
+      ParallelLogger::logInfo('Issue with parsing json object...');
+      ParallelLogger::logError(cond)
+    })
+  json$analyses <- tryCatch(
+    {lapply(json$analyses, function(x) prepareToRlist(x))},
+    error = function(cond) {
+      ParallelLogger::logInfo('Issue converting json to R list...');
+      ParallelLogger::logError(cond)
+    })
+  
+  # if splitSettings in json
+  if('splitSettings' %in% names(json)){
+    # update the splitsetting (move this into load/saveplpAnalysis)
+    if('attributes' %in% names(json$splitSettings)){
+      atts <- json$splitSettings$attributes
+      json$splitSettings$attributes <- NULL
+      attributes(json$splitSettings) <- atts
+    }
+  }
+  
+  return(json)
+  
+}
+
+
+
+
+
+#' externally validate the multiple plp models across new datasets
+#' @description
+#' This function loads all the models in a multiple plp analysis folder and
+#' validates the models on new data
+#' @details
+#' Users need to input a location where the results of the multiple plp analyses
+#' are found and the connection and database settings for the new data
+#' 
+#' @param analysesLocation                The location where the multiple plp analyses are
+#' @param validationDatabaseDetails       The validation database settings created using \code{createDatabaseDetails()}
+#' @param validationRestrictPlpDataSettings  The settings specifying the extra restriction settings when extracting the data created using \code{createRestrictPlpDataSettings()}.
+#' @param recalibrate                      A vector of recalibration methods (currently supports 'RecalibrationintheLarge' and/or 'weakRecalibration')
+#' @param saveDirectory               The location to save to validation results
+#' 
+#' @export 
+validateMultiplePlp <- function(
+  analysesLocation,
+  validationDatabaseDetails,
+  validationRestrictPlpDataSettings = createRestrictPlpDataSettings(),
+  recalibrate = NULL,
+  saveDirectory = NULL
+  ){
+
+  # add input checks 
+  checkIsClass(analysesLocation, 'character')
+  
+  checkIsClass(validationDatabaseDetails, 'databaseDetails')
+  checkIsClass(validationRestrictPlpDataSettings, 'restrictPlpDataSettings')
+  
+  checkIsClass(recalibrate, c('character', 'NULL'))
+  checkIsClass(saveDirectory, c('character', 'NULL'))
+
+  # for each model run externalValidateDbPlp()
+  analyses <- dir(analysesLocation, recursive = F, full.names = F)
+  
+  # now fine all analysis folders..
+  analyses <- analyses[grep('Analysis_',analyses)]
+  
+  for(i in 1:length(analyses)){
+    
+    if(is.null(saveDirectory)){
+      saveLocation <- file.path(analysesLocation, 'Validation')
+    } else{
+      saveLocation <- saveDirectory
+    }
+    
+    analysis <- analyses[i]
+    modelSettings <- file.path(analysesLocation, analysis)
+    
+    ParallelLogger::logInfo(paste0('Evaluating model in ',modelSettings ))
+    
+    if(dir.exists(file.path(modelSettings[i],'plpResult'))){
+      ParallelLogger::logInfo(paste0('plpResult found in ',modelSettings ))
+      
+      plpModel <- loadPlpModel(file.path(modelSettings,'plpResult','model'))
+      
+      validations <-   tryCatch(
+        {
+          externalValidateDbPlp(
+            plpModel = plpModel,
+            validationDatabaseDetails = validationDatabaseDetails,
+            validationRestrictPlpDataSettings = validationRestrictPlpDataSettings,
+            settings = createValidationSettings(
+              recalibrate = recalibrate
+            ),
+            outputFolder = saveLocation
+          )},
+        error = function(cont){ParallelLogger::logInfo(paste0('Error: ',cont ))
+          ;return(NULL)}
+      )
+      
+    }
+  }
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# HELPERS
+#===============================
+getidList <- function(modelDesignList){
+  
+  types <- c(
+    'targetId', 
+    'outcomeId', 
+    'restrictPlpDataSettings',
+    'covariateSettings', 
+    'populationSettings', 
+    'sampleSettings',
+    'featureEngineeringSettings',
+    'preprocessSettings',
+    'modelSettings',
+    'executeSettings'
+  )
+  
+  idList <- list()
+  length(idList) <- length(types)
+  names(idList) <- types
+  
+  for(type in types){
+    idList[[type]] <- getSettingValues(modelDesignList, type = type )
+  }
+  
+  return(idList)
+}
+
+
+getSettingValues <- function(modelDesignList, type = 'cohortId' ){
+  
+  if(class(modelDesignList) == 'list'){
+    values <- unique(unlist(lapply(modelDesignList, function(x)jsonlite::serializeJSON(x[[type]])))
+      )
+  } else{
+    values <- jsonlite::serializeJSON(modelDesignList[[type]])
+  }
+  
+  if(! type %in% c('targetId', 'outcomeId')  ){
+    result <- data.frame(
+      value = values,
+      id = 1:length(values)
+    )
+  } else{
+    result <- data.frame(
+      value = sapply(values, function(x) jsonlite::unserializeJSON(x)),
+      id = sapply(values, function(x) jsonlite::unserializeJSON(x))
+    )
+  }
+  
+  return(result)
+}
+
+# get the ids for the model design settings
+getIdsForSetting <- function(modelDesign, idList){
+  
+  ids <- c()
+  
+  for(settingType in names(idList)){
+    
+    if(!settingType %in% c('targetId', 'outcomeId')){
+    # get the index of the setting matching the design setting
+      ind <- which(idList[[settingType]]$value == jsonlite::serializeJSON(modelDesign[[settingType]]))
+    } else{
+      ind <- which(idList[[settingType]]$value == modelDesign[[settingType]])
+    }
+    # get the id
+    id <- idList[[settingType]]$id[ind]
+    
+    ids <- c(ids, id)
+  }
+  
+  names(ids) <- names(idList)
+  
+  return(ids)
+}
+
+
+# this creates a data.frame with the analysisId and settingsId for each analysis
+# need to add the data location to this
+getSettingsTable <- function(modelDesignList, idList){
+  
+  result <- lapply(modelDesignList, function(x) getIdsForSetting(x, idList) )
+  settingsTable <- do.call(rbind, result)
+  settingsTable <- as.data.frame(settingsTable)
+  
+  settingsTable$analysisId <- paste0('Analysis_', 1:nrow(settingsTable))
+  
+  settingsTable$dataLocation <- paste0('T_',settingsTable$targetId, '_L_', settingsTable$covariateSettings*settingsTable$restrictPlpDataSettings)
+  
+  return(settingsTable)
+}
+
+
+getSettingFromId <- function(
+  idList, 
+  type, 
+  id
+){
+  ind <- which(idList[[type]]$id == id)
+  if(!type %in% c('targetId', 'outcomeId')){
+    return(jsonlite::unserializeJSON(as.character(idList[[type]]$value[[ind]])))
+  } else{
+    return(idList[[type]]$value[[ind]])
   }
 }
 
-#+++++++++++++++++++++++++++++++++++++++++++++
-#==============================================
-# create an exclude/include covariates filter
-#==============================================
-restrictCovariates <- function(plpData, covariateSetting){
+
+getDataSettings <- function(settingstable){
   
-  ind.all <- ff::as.ff(c(0))
-  ind.covRef <- c()
+  combos <- settingstable %>% 
+    dplyr::distinct(.data$targetId,.data$covariateSettings,.data$restrictPlpDataSettings,.data$dataLocation)
   
-  if(length(covariateSetting$includedCovariateIds)!=0){
-    ind.all <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covariateSetting$includedCovariateIds))
-    ind.all <- ffbase::ffwhich(ind.all, !is.na(ind.all))
-    ind.covRef <- ffbase::ffmatch(plpData$covariateRef$covariateId, table=ff::as.ff(covariateSetting$includedCovariateIds))
-    ind.covRef <- ff::as.ram(ffbase::ffwhich(ind.covRef, !is.na(ind.covRef)))
+  result <- list()
+  length(result) <- nrow(combos)
+  for(i in 1:nrow(combos)){
+    result[[i]] <- list(
+      targetId = combos$targetId[i],
+      covariateSettings = combos$covariateSettings[i],
+      restrictPlpDataSettings = combos$restrictPlpDataSettings[i],
+      dataLocation = combos$dataLocation[i],
+      outcomeIds = settingstable %>%  
+        dplyr::filter(.data$dataLocation == combos$dataLocation[i]) %>%  
+        dplyr::select(.data$outcomeId) %>%  
+        dplyr::pull()
+    )
   }
-  
-  #=======================================
-  #   DEMOGRAPHICS
-  #=======================================
-  if(covariateSetting$useCovariateDemographics == TRUE){
-    
-    # get gender covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsGender==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==2]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==2) ) # add covariateRef info
-    }  
-    
-    # get Race covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsRace==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==3]
-      if(sum(ff::as.ram(plpData$covariateRef$analysisId)==3)>0){
-        ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-        ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-        ind.covRef <- c(ind.covRef, 
-                        which(ff::as.ram(plpData$covariateRef$analysisId)==3) ) # add covariateRef info
-      }
-    }  
-    
-    # get Ethnicity covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsEthnicity==TRUE){
-      covs <- ff::as.ram(plpData$covariateRef$covariateId)[ff::as.ram(plpData$covariateRef$analysisId)==4 &
-                                                             ff::as.ram(plpData$covariateRef$conceptId)!=0]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(all.ind, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==4 &
-                              ff::as.ram(plpData$covariateRef$conceptId)!=0))
-      
-    }  
-    
-    # get Age covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsAge==TRUE){
-      covs <- ff::as.ram(plpData$covariateRef$covariateId)[ff::as.ram(plpData$covariateRef$analysisId)==4 &
-                                                             ff::as.ram(plpData$covariateRef$conceptId)==0]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==4 &
-                              ff::as.ram(plpData$covariateRef$conceptId)==0))
-    }  
-    
-    # get Year covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsYear==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==5]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==5) )
-    } 
-    
-    # get Month covariate indexes if selected
-    if(covariateSetting$useCovariateDemographicsMonth ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==6]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==6) )
-    } 
-    
-    
-  }
-  
-  
-  #=======================================
-  #   CONDITIONS
-  #=======================================
-  # find the condition group indexes:
-  condGroup <- grep('condition group', as.character(ff::as.ram(plpData$covariateRef$covariateName)))
-  
-  if(covariateSetting$useCovariateConditionOccurrence == TRUE){
-    
-    
-    # get useCovariateConditionOccurrenceLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateConditionOccurrenceLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==101)),
-                                                       condGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==101)),
-                              condGroup) )
-    } 
-    
-    # get useCovariateConditionOccurrenceShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateConditionOccurrenceShortTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==102)),
-                                                       condGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==102)),
-                              condGroup) )
-    } 
-    
-    # get useCovariateConditionOccurrenceInptMediumTerm covariate indexes if selected
-    if(covariateSetting$useCovariateConditionOccurrenceInptMediumTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==103)),
-                                                       condGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==103)),
-                              condGroup) )
-    } 
-  }
-  
-  
-  if(covariateSetting$useCovariateConditionEra == TRUE){
-    
-    # get useCovariateConditionEraEver covariate indexes if selected
-    if(covariateSetting$useCovariateConditionEraEver ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==201)),
-                                                       condGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==201)),
-                              condGroup) )
-    }
-    
-    # get useCovariateConditionEraOverlap covariate indexes if selected
-    if(covariateSetting$useCovariateConditionEraOverlap ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==202)),
-                                                       condGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==202)),
-                              condGroup) )
-    }
-  } 
-  
-  if(covariateSetting$useCovariateConditionGroup == TRUE){
-    #useCovariateConditionGroupMeddra, (covariate name contains condition group),
-    #useCovariateConditionGroupSnomed = FALSE,
-  } 
-  
-  
-  #=======================================
-  #   DRUGS
-  #=======================================
-  drugGroup <- grep('drug group', as.character(ff::as.ram(plpData$covariateRef$covariateName)))
-  
-  if(covariateSetting$useCovariateDrugExposure == TRUE){
-    # find the condition group indexes:
-    
-    # get useCovariateDrugExposureLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateDrugExposureLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==401)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==401)),
-                              drugGroup) )
-    } 
-    
-    # get useCovariateDrugExposureShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateDrugExposureShortTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==402)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==402)),
-                              drugGroup) )
-    }     
-    
-  }
-  
-  if(covariateSetting$useCovariateDrugEra == TRUE){
-    
-    # get useCovariateDrugEraLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateDrugEraLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==501)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==501)),
-                              drugGroup) )
-    } 
-    # get useCovariateDrugEraShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateDrugEraShortTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==502)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==502)),
-                              drugGroup) )
-    } 
-    # get useCovariateDrugEraOverlap covariate indexes if selected
-    if(covariateSetting$useCovariateDrugEraOverlap ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==503)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==503)),
-                              drugGroup) )
-    } 
-    # get useCovariateDrugEraEver covariate indexes if selected
-    if(covariateSetting$useCovariateDrugEraEver ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==504)),
-                                                       drugGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==504)),
-                              drugGroup) )
-    } 
-  }
-  
-  
-  if(covariateSetting$useCovariateDrugGroup==TRUE){
-    covs <- plpData$covariateRef$covariateId[drugGroup]
-    ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-    
-    ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-    ind.covRef <- c(ind.covRef, 
-                    drugGroup )
-  } 
-  
-  
-  #=======================================
-  #   PROCEDURES
-  #=======================================
-  if(covariateSetting$useCovariateProcedureOccurrence == TRUE){
-    # find the condition group indexes:
-    procedureGroup <- grep('procedure group', as.character(ff::as.ram(plpData$covariateRef$covariateName)))
-    
-    # get useCovariateProcedureOccurrenceLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateProcedureOccurrenceLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==701)),
-                                                       procedureGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==701)),
-                              procedureGroup) )
-    } 
-    
-    # get useCovariateProcedureOccurrenceShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateProcedureOccurrenceShortTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==702)),
-                                                       procedureGroup)]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      setdiff(which(ff::as.ram(plpData$covariateRef$analysisId==702)),
-                              procedureGroup) )
-    } 
-    
-    if(useCovariateProcedureGroup ==TRUE){
-      #  useCovariateProcedureGroup, 700-800 (covariate name contains procedure group), 
-      covs <- plpData$covariateRef$covariateId[procedureGroup]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef, 
-                      procedureGroup )
-    } 
-    
-  }
-  
-  
-  
-  #=======================================
-  #   OBSERVATIONS
-  #=======================================
-  if(covariateSetting$useCovariateObservation ==TRUE){
-    
-    # get useCovariateObservationLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateObservationLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==901]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==901) ))
-    } 
-    
-    # get useCovariateObservationShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateObservationShortTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==902]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==902) ))
-    } 
-    
-    # get useCovariateObservationCountLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateObservationCountLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==905]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==905) ))
-    } 
-    
-  }
-  
-  #=======================================
-  #   MEASUREMENTS
-  #=======================================
-  if(covariateSetting$useCovariateMeasurement == TRUE){
-    # get useCovariateMeasurementLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateMeasurementLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==901]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==901) ))
-    } 
-    
-    # get useCovariateMeasurementShortTerm covariate indexes if selected
-    if(covariateSetting$useCovariateMeasurementShortTerm ==TRUE ){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==902]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==902) ))
-    } 
-    
-    # get useCovariateMeasurementCountLongTerm covariate indexes if selected
-    if(covariateSetting$useCovariateMeasurementCountLongTerm ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==905]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==905) ))
-    } 
-    
-    # get useCovariateMeasurementBelow covariate indexes if selected
-    if(covariateSetting$useCovariateMeasurementBelow ==TRUE || covariateSetting$useCovariateMeasurementAbove ==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==903]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,which(ff::as.ram(plpData$covariateRef$analysisId==903) ))
-    } 
-    
-    # get useCovariateConceptCounts covariate indexes if selected
-    if(covariateSetting$useCovariateConceptCounts ==TRUE){
-      
-      ind <- ffbase::ffmatch(plpData$covariateRef$analysisId, table=ff::as.ff(1000:1007))
-      covs <- plpData$covariateRef$covariateId[ffbase::ffwhich(ind, !is.na(ind))]
-      
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covs))
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)) )
-      ind.covRef <- c(ind.covRef,ff::as.ram(ffbase::ffwhich(ind, !is.na(ind)) ) )
-    }
-  }
-  
-  
-  #=======================================
-  #   RISKS
-  #=======================================
-  # add the risk scores
-  if(covariateSetting$useCovariateRiskScores == TRUE){
-    
-    # get riskScoresCharlson covariate indexes if selected
-    if(covariateSetting$useCovariateRiskScoresCharlson==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==1100]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==1100) )
-    } 
-    
-    # get riskScoresDCSI covariate indexes if selected
-    if(covariateSetting$useCovariateRiskScoresDCSI==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==1101]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==1101) )
-    } 
-    
-    # get riskScoresCHADS2 covariate indexes if selected
-    if(covariateSetting$useCovariateRiskScoresCHADS2==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==1102]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==1102) )
-    }
-    
-    # get riskScoresCHADS2VASc covariate indexes if selected
-    if(covariateSetting$useCovariateRiskScoresCHADS2VASc==TRUE){
-      covs <- plpData$covariateRef$covariateId[plpData$covariateRef$analysisId==1103]
-      ind.x <- ffbase::ffmatch(plpData$covariates$covariateId, table=covs)
-      
-      ind.all <- union(ind.all, ffbase::ffwhich(ind.x, !is.na(ind.x)))
-      ind.covRef <- c(ind.covRef, 
-                      which(ff::as.ram(plpData$covariateRef$analysisId)==1103) )
-    } 
-    
-  }
-  
-  # do the exclusions
-  if(length(covariateSetting$excludedCovariateIds)!=0){
-    ind.ex <- ffbase::ffmatch(plpData$covariates$covariateId, table=ff::as.ff(covariateSetting$excludedCovariateIds))
-    ind.all <- ff::as.ff(setdiff(ff::as.ram(ind.all), ff::as.ram(ffbase::ffwhich(ind.ex, !is.na(ind.ex)))))
-    ind.covRef <- ffbase::ffmatch(plpData$covariateRef$covariateId, table=ff::as.ff(covariateSetting$excludedCovariateIds))
-    ind.covRef <- setdiff(ind.covRef, ff::as.ram(ffbase::ffwhich(ind.covRef, !is.na(ind.covRef))))
-  }
-  
-  # remove small counts:
-  if(!is.null(covariateSetting$deleteCovariatesSmallCount)){
-    oneVals <- ff::as.ff(rep(1, length(plpData$covariates$covariateValue)))
-    grp_qty <- bySumFf(oneVals, plpData$covariates$covariateId)
-    
-    smallRemove <- ff::as.ram(grp_qty$bins)[ff::as.ram(grp_qty$sums)<covariateSetting$deleteCovariatesSmallCount]
-    
-    if(length(smallRemove)>0){
-      # we currently remove the included ones if they are under this threshold - keep?
-      ind.x <- ffbase::ffmatch(x = plpData$covariates$covariateId, table = ff::as.ff(smallRemove))
-      ind.all <-  ff::as.ff(setdiff(ff::as.ram(ind.all), ff::as.ram(ffbase::ffwhich(ind.x, !is.na(ind.x)))))
-      ind.x <- ffbase::ffmatch(x = plpData$covariateRef$covariateId, table = ff::as.ff(smallRemove))
-      ind.covRef <- setdiff(ind.covRef, ff::as.ram(ffbase::ffwhich(ind.x, !is.na(ind.x))))
-    }
-  }
-  
-  metaDataTemp <- plpData$metaData
-  metaDataTemp$call$covariateSettings <- covariateSetting
-  
-  result <- list(outcomes = plpData$outcomes,
-                 cohorts = plpData$cohorts,
-                 covariates= ff::clone(plpData$covariates),
-                 exclude= plpData$exclude,
-                 covariateRef = ff::clone(plpData$covariateRef),
-                 metaData= metaDataTemp)
-  result$covariates <- ff::as.ffdf(plpData$covariates[ind.all[-1],])
-  result$covariateRef <- plpData$covariateRef[ff::as.ff(ind.covRef),]
-  
-  class(result) <- 'plpData'
-  
-  # filters the entries to include in plpData$covariates and plpData$covariateRef
-  # return the indexes
   return(result)
+}
+
+getNames <- function(
+  cohortDefinitions, 
+  ids
+){
+  
+  idNames <- lapply(cohortDefinitions, function(x) c(x$id, x$name))
+  idNames <- do.call(rbind, idNames)
+  colnames(idNames) <- c('id', 'name')
+  idNames <- as.data.frame(idNames)
+  
+  nams <- c()
+  for(id in ids){
+    nams <- c(nams, idNames$name[idNames$id == id])
+  }
+  
+  return(nams)
+  
 }

@@ -1,6 +1,6 @@
 # @file PatientLevelPrediction.R
 #
-# Copyright 2017 Observational Health Data Sciences and Informatics
+# Copyright 2021 Observational Health Data Sciences and Informatics
 #
 # This file is part of PatientLevelPrediction
 # 
@@ -17,46 +17,30 @@
 # limitations under the License.
 
 #' PatientLevelPrediction
+#' 
+#' @description A package for running predictions using data in the OMOP CDM
 #'
 #' @docType package
 #' @name PatientLevelPrediction
-#' @importFrom Rcpp evalCpp
-#' @importFrom SqlRender loadRenderTranslateSql translateSql
-#' @importFrom plyr ddply
-#' @importFrom methods is
-#' @importFrom stats binom.test lm printCoefmat rpois runif sd aggregate
-#' @importFrom utils write.csv write.table data
-#' @importFrom grDevices dev.control dev.off pdf recordPlot rgb
-#' @import bit
-#' @import Cyclops
-#' @import DatabaseConnector
+#' @importFrom dplyr %>%
+#' @importFrom rlang .data
 #' @import FeatureExtraction
-#' @useDynLib PatientLevelPrediction
 NULL
 
 #' A simulation profile
 #' @docType data
 #' @keywords datasets
 #' @name plpDataSimulationProfile
+#' @format A data frame containing the following elements:
+#' \describe{
+#'   \item{covariatePrevalence}{prevalence of all covariates}
+#'   \item{outcomeModels}{regression model parameters to simulate outcomes}
+#'   \item{metaData}{settings used to simulate the profile}
+#'   \item{covariateRef}{covariateIds and covariateNames}
+#'   \item{timePrevalence}{time window}
+#'   \item{exclusionPrevalence}{prevalence of exclusion of covariates}
+#' }
 #' @usage
 #' data(plpDataSimulationProfile)
 NULL
 
-
-.onLoad <- function(libname, pkgname) {
-  # Copied this from the ff package:
-  if (is.null(getOption("ffmaxbytes"))) {
-    # memory.limit is windows specific
-    if (.Platform$OS.type == "windows") {
-      if (getRversion() >= "2.6.0")
-        options(ffmaxbytes = 0.5 * utils::memory.limit() * (1024^2)) else options(ffmaxbytes = 0.5 * utils::memory.limit())
-    } else {
-      # some magic constant
-      options(ffmaxbytes = 0.5 * 1024^3)
-    }
-  }
-
-  # Workaround for problem with ff on machines with lots of memory (see
-  # https://github.com/edwindj/ffbase/issues/37)
-  options(ffmaxbytes = min(getOption("ffmaxbytes"), .Machine$integer.max * 12))
-}
